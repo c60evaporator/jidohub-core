@@ -65,7 +65,10 @@ extend-immutable-calls = ["pydantic.Field"]
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.10"
+# 型チェックの対象バージョンは 3.12。numpy>=2.3 の型スタブが PEP 695 の
+# `type` 文を使っており、mypy の target が 3.12 未満だとスタブの解析に失敗するため。
+# ランタイムの 3.10 互換は pytest マトリクス（3.10/3.11/3.12）で担保する。
+python_version = "3.12"
 disallow_untyped_defs = true
 ignore_missing_imports = true
 # PEP 420 namespace package + src レイアウトのため、モジュール名を
