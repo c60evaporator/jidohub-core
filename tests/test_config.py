@@ -192,6 +192,15 @@ def test_incompatible_schema_version(version: str) -> None:
         parse_agent_config(data)
 
 
+@pytest.mark.parametrize("version", ["1", "abc", "1.2.3"])
+def test_malformed_schema_version_rejected(version: str) -> None:
+    # 形式検証は schemas.version.assert_compatible に委譲済み。
+    # major.minor でない値は引き続き ConfigValidationError で拒否される。
+    data = mutate(native_config(), schema_version=version)
+    with pytest.raises(ConfigValidationError, match="major.minor"):
+        parse_agent_config(data)
+
+
 def test_isolation_required_needs_source() -> None:
     data = native_config()
     data["runtime"] = {"isolation": "required", "gpu_required": True}

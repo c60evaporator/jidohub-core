@@ -34,8 +34,8 @@ from typing import Any
 
 import numpy as np
 
+from jidohub.core.schemas.version import SCHEMA_VERSION, assert_compatible
 from jidohub.core.serialization.codec import SerializationError, decode, encode
-from jidohub.core.serialization.version import SCHEMA_VERSION, assert_compatible
 
 __all__ = ["MAGIC", "pack", "unpack"]
 

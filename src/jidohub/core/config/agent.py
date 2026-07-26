@@ -26,7 +26,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from jidohub.core.schemas.version import SCHEMA_VERSION
+from jidohub.core.schemas.version import assert_compatible
 from jidohub.core.tasks import IntermediateOutput, Platform, TaskType
 
 __all__ = [
@@ -41,7 +41,6 @@ __all__ = [
 
 _AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*$")
 _AUTO_MAP_PATTERN = re.compile(r"^[\w./-]+\.py:[A-Za-z_]\w*$")
-_VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)$")
 
 # E2E 以外のタスクは中間出力を持たない（出力型に対応フィールドが存在しないため）
 _TASKS_WITH_INTERMEDIATE_OUTPUTS = {TaskType.SENSING_TO_PLANNING}
@@ -304,13 +303,6 @@ class AgentConfig(BaseModel):
     すべてここに入れる。**core はこの中身を解釈しない**（各 Agent の実装が読む）。
     """
 
-    @field_validator("schema_version")
-    @classmethod
-    def _validate_version_format(cls, value: str) -> str:
-        if not _VERSION_PATTERN.match(value):
-            raise ValueError(f"schema_version must be 'major.minor', got {value!r}")
-        return value
-
     @field_validator("agent_id")
     @classmethod
     def _validate_agent_id(cls, value: str) -> str:
@@ -346,25 +338,9 @@ class AgentConfig(BaseModel):
 def _assert_schema_compatible(declared: str) -> None:
     """宣言された schema_version が core と互換かを検証する。
 
-    - major が異なる場合は非互換。
-    - **0.x の期間は minor 差も非互換として扱う**（破壊的変更を許容する期間のため）。
-      1.0 以降は minor 差を後方互換として許容する。
+    互換ルール（形式チェックを含む）の実体は
+    :func:`jidohub.core.schemas.version.assert_compatible` にある。
+    判定ロジックをここに複製しないこと。config 固有の追加検証を将来挟む余地として
+    薄いラッパのみ残す。
     """
-    declared_major, declared_minor = (int(part) for part in declared.split("."))
-    current_major, current_minor = (int(part) for part in SCHEMA_VERSION.split("."))
-
-    if declared_major != current_major:
-        raise ValueError(
-            f"schema_version {declared!r} is incompatible with core {SCHEMA_VERSION!r} "
-            "(major version mismatch)"
-        )
-    if current_major == 0 and declared_minor != current_minor:
-        raise ValueError(
-            f"schema_version {declared!r} is incompatible with core {SCHEMA_VERSION!r} "
-            "(0.x is unstable; minor versions are not compatible)"
-        )
-    if declared_minor > current_minor:
-        raise ValueError(
-            f"schema_version {declared!r} is newer than core {SCHEMA_VERSION!r}; "
-            "please upgrade jidohub-core"
-        )
+    assert_compatible(declared)

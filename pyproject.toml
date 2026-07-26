@@ -49,12 +49,17 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-# 既存コードの注釈を書き換えないよう、opinionated な UP / B は入れない。
-# （B は pydantic の Field(default_factory=...) を B008 で誤検出する。）
-select = ["E", "F", "I"]
+# UP（pyupgrade）は既存コードの型注釈を書き換えるため入れない。
+# B（flake8-bugbear）は有効（現状クリーン）。
+select = ["E", "F", "I", "B"]
 # 行長は formatter が管理する。E501 は formatter が折り返せない文字列・コメント
 # （日本語 docstring 等）だけを誤って咎めるため無効化する。
 ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# クラス属性の `x: T = Field(...)` は元々 B008 の対象外だが、将来 Field を
+# 関数デフォルトで使っても誤検出しないよう immutable call として明示する。
+extend-immutable-calls = ["pydantic.Field"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

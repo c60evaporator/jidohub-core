@@ -39,7 +39,7 @@ src/
         ├── geometry.py          座標変換・回転表現のヘルパ（純 numpy）
         ├── schemas/             標準スキーマ（dataclass）
         │   ├── __init__.py      再エクスポート
-        │   ├── version.py       SCHEMA_VERSION
+        │   ├── version.py       SCHEMA_VERSION / assert_compatible / is_compatible（互換判定の唯一の正）
         │   ├── sample.py        入力: Sample / CameraFrame / LidarSweep /
         │   │                    RadarSweep / EgoState / DrivingCommand
         │   └── outputs.py       出力: Box3D / Detection3DOutput / MapOutput /
@@ -94,6 +94,20 @@ jidohub は PEP 420 の implicit namespace package として構成する。
 - `schema_version` は現在 **`"0.1"`（破壊的変更を許容する期間）**。
   CenterPoint（Detection）と UniAD（E2E）の入出力を実際に押し込んで歪みがないことを
   確認するまで `"1.0"` にしない。
+
+#### 3 つのバージョンを混同しない
+
+core には**独立に動く 3 つのバージョン**がある。片方に合わせて他方を上げない。
+互換判定ロジックを各モジュールに再実装しない（重複は drift の温床）。
+
+| 種類 | 定義場所 | 表すもの |
+|---|---|---|
+| **スキーマ契約バージョン** | `SCHEMA_VERSION`（`schemas/version.py`） | 標準スキーマ型の互換性。全リポジトリの契約。**定義・互換判定（`assert_compatible`）はこの 1 箇所のみが正** |
+| **コンテナ形式バージョン** | `MAGIC` 末尾バイト（`serialization/envelope.py`） | バイナリ framing の互換性。型が変わらなくても framing を変えれば上がる |
+| **パッケージバージョン** | `pyproject.toml` | リリース管理。**スキーマ契約バージョンと連動させない** |
+
+- スキーマ互換の判定が必要な箇所（config の検証・直列化の検証など）は
+  `schemas.version.assert_compatible` へ**委譲**する。major/minor 比較や形式チェックを各所に複製しない。
 
 ### 2.4 用語：Agent と Model を混同しない
 
