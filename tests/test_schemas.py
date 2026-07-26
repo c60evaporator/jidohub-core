@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
 from jidohub.core.geometry import yaw_to_quaternion
 from jidohub.core.schemas import (
+    Box3D,
     CameraFrame,
     LidarSweep,
     RadarSweep,
     Sample,
 )
+from jidohub.core.serialization import pack, unpack
 
 from .conftest import make_box, make_lidar_sweep, make_sample, make_transform
 
@@ -105,3 +109,88 @@ def test_box_yaw_roundtrip(yaw: float) -> None:
     box = make_box()
     box.rotation = yaw_to_quaternion(yaw)
     assert box.yaw == pytest.approx(yaw, abs=1e-9)
+
+
+# --- Box3D の寸法アクセサ ----------------------------------------------------
+
+
+def test_box_dimension_properties_match_size() -> None:
+    box = make_box()
+    assert box.length == box.size[0]
+    assert box.width == box.size[1]
+    assert box.height == box.size[2]
+    # プロパティは float を返す（np スカラのままにしない）。
+    assert isinstance(box.length, float)
+    assert isinstance(box.width, float)
+    assert isinstance(box.height, float)
+
+
+def test_from_dimensions_stores_size_in_lwh_order() -> None:
+    box = Box3D.from_dimensions(
+        center=np.array([0.0, 0.0, 0.0], dtype=np.float64),
+        length=4.5,
+        width=1.9,
+        height=1.6,
+        rotation=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+        label="car",
+    )
+    assert box.size.dtype == np.float64
+    np.testing.assert_array_equal(box.size, np.array([4.5, 1.9, 1.6]))
+    assert box.length == 4.5
+    assert box.width == 1.9
+    assert box.height == 1.6
+
+
+def test_from_dimensions_passes_through_optional_kwargs() -> None:
+    velocity = np.array([2.0, 0.0, 0.0], dtype=np.float64)
+    box = Box3D.from_dimensions(
+        center=np.array([1.0, 2.0, 0.5], dtype=np.float64),
+        length=4.5,
+        width=1.9,
+        height=1.6,
+        rotation=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+        label="car",
+        score=0.8,
+        track_id=42,
+        velocity=velocity,
+        attributes={"moving": True},
+    )
+    assert box.score == 0.8
+    assert box.track_id == 42
+    np.testing.assert_array_equal(box.velocity, velocity)
+    assert box.attributes == {"moving": True}
+
+
+def test_dimension_properties_are_not_dataclass_fields() -> None:
+    # フィールド化されると直列化の二重の正になるため、機械的に防ぐ。
+    field_names = {f.name for f in dataclasses.fields(Box3D)}
+    assert {"length", "width", "height"} & field_names == set()
+
+
+def test_from_dimensions_roundtrips_through_pack_unpack() -> None:
+    box = Box3D.from_dimensions(
+        center=np.array([1.0, 2.0, 0.5], dtype=np.float64),
+        length=4.5,
+        width=1.9,
+        height=1.6,
+        rotation=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+        label="car",
+        score=0.8,
+    )
+    restored = unpack(pack(box))
+    np.testing.assert_array_equal(restored.size, box.size)
+    assert restored.label == box.label
+    assert restored.score == box.score
+
+
+def test_realistic_dimensions_avoid_lw_swap() -> None:
+    # 乗用車相当。順序を取り違えた実装ではこの assert が失敗する。
+    box = Box3D.from_dimensions(
+        center=np.array([0.0, 0.0, 0.0], dtype=np.float64),
+        length=4.5,
+        width=1.9,
+        height=1.6,
+        rotation=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+        label="car",
+    )
+    assert box.length > box.width

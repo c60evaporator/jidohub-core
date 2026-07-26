@@ -162,7 +162,7 @@ core には**独立に動く 3 つのバージョン**がある。片方に合�
 | 画像 | `np.uint8`, shape `(H, W, 3)`, **RGB順**（BGRにしない） |
 | 点群 | `np.float32`, shape `(N, C)`。先頭3列は必ず x, y, z |
 | 変換行列 | `np.float64`, shape `(4, 4)` |
-| Box の size | `(length, width, height)` の順（x, y, z 軸方向に対応） |
+| Box の size | `(length, width, height)` の順（x, y, z 軸方向に対応）。軸順との一致を優先した意図的な設計で、nuScenes（`(width, length, height)` 順）からは意図的に逸脱している。Adapter で必ず入れ替えが必要。個別アクセスは `size[0]` でなく `Box3D.length` / `width` / `height` プロパティを使う |
 
 ---
 
