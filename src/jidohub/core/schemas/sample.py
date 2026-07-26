@@ -74,9 +74,7 @@ class CameraFrame:
         _check_shape("CameraFrame.intrinsic", self.intrinsic, (3, 3))
         _check_shape("CameraFrame.sensor_to_ego", self.sensor_to_ego, (4, 4))
         if self.image.ndim != 3 or self.image.shape[2] != 3:
-            raise ValueError(
-                f"CameraFrame.image must have shape (H, W, 3), got {self.image.shape}"
-            )
+            raise ValueError(f"CameraFrame.image must have shape (H, W, 3), got {self.image.shape}")
 
 
 @dataclass

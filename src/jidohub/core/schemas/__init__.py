@@ -1,17 +1,53 @@
-"""jidohub-core: jidohub プラットフォームの共通基盤。
+"""jidohub 標準スキーマ。
 
-標準スキーマ・Hub クライアント・config パーサ／バリデータを提供する。
-他の jidohub パッケージ（agents / datasets / interfaces）はすべて core に依存し、
-**core は他の jidohub パッケージに依存しない**（星形依存）。
+プラットフォーム全体の契約であり、**この定義が唯一の正**。
+他リポジトリで同等の型を再定義しないこと。
 
-Note:
-    ``src/jidohub/`` は PEP 420 の namespace package であり、
-    ``src/jidohub/__init__.py`` は**存在してはならない**。
+型の追加・変更は :data:`SCHEMA_VERSION` への影響とセットで判断する。
 """
 
 from __future__ import annotations
 
-from jidohub.core.schemas import SCHEMA_VERSION
-from jidohub.core.tasks import TaskType
+from jidohub.core.schemas.outputs import (
+    AgentForecast,
+    Box3D,
+    CoordinateFrame,
+    Detection3DOutput,
+    E2EOutput,
+    MapElement,
+    MapElementType,
+    MapOutput,
+    MotionForecastOutput,
+    PlanningOutput,
+)
+from jidohub.core.schemas.sample import (
+    CameraFrame,
+    DrivingCommand,
+    EgoState,
+    LidarSweep,
+    RadarSweep,
+    Sample,
+)
+from jidohub.core.schemas.version import SCHEMA_VERSION
 
-__all__ = ["SCHEMA_VERSION", "TaskType"]
+__all__ = [
+    "SCHEMA_VERSION",
+    # 入力
+    "Sample",
+    "CameraFrame",
+    "LidarSweep",
+    "RadarSweep",
+    "EgoState",
+    "DrivingCommand",
+    # 出力
+    "CoordinateFrame",
+    "Box3D",
+    "Detection3DOutput",
+    "MapElement",
+    "MapElementType",
+    "MapOutput",
+    "AgentForecast",
+    "MotionForecastOutput",
+    "PlanningOutput",
+    "E2EOutput",
+]

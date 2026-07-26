@@ -82,8 +82,12 @@ class AgentReference:
             ValueError: 形式が不正、または revision が二重指定された場合。
         """
         if isinstance(value, Path):
-            return cls(kind=RefKind.LOCAL, raw=str(value), path=value.expanduser().resolve(),
-                       revision=_validated_revision(revision))
+            return cls(
+                kind=RefKind.LOCAL,
+                raw=str(value),
+                path=value.expanduser().resolve(),
+                revision=_validated_revision(revision),
+            )
 
         text = value.strip()
         if not text:

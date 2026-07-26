@@ -135,8 +135,7 @@ class HubClient:
             actual = compute_sha256(path)
             if actual != weight.sha256:
                 raise ChecksumError(
-                    f"checksum mismatch for {weight.path}: "
-                    f"expected {weight.sha256}, got {actual}"
+                    f"checksum mismatch for {weight.path}: expected {weight.sha256}, got {actual}"
                 )
 
 

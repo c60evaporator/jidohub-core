@@ -44,9 +44,9 @@ src/
         │   │                    RadarSweep / EgoState / DrivingCommand
         │   └── outputs.py       出力: Box3D / Detection3DOutput / MapOutput /
         │                        PlanningOutput / E2EOutput / AgentForecast など
-        ├── config/              agent_config.json のパース・検証（Pydantic）※未実装
-        ├── serialization/       Sample / Output の直列化・復元 ※未実装
-        └── hub/                 Hub クライアント（download / upload / revision 解決）※未実装
+        ├── config/              agent_config.json のパース・検証（Pydantic）
+        ├── serialization/       Sample / Output の直列化・復元（pack / unpack）
+        └── hub/                 Hub クライアント（snapshot / revision 解決 / チェックサム検証）
 ```
 
 配置ルール

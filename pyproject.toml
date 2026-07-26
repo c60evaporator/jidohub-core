@@ -1,0 +1,95 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jidohub-core"
+version = "0.1.0"
+description = "jidohub の共通基盤: 標準スキーマ・Hub クライアント・config パーサ／バリデータ・直列化"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "jidohub" }]
+keywords = ["autonomous-driving", "schema", "nuscenes", "jidohub"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = [
+    "numpy",
+    "pydantic>=2",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy"]
+
+[tool.hatch.build.targets.wheel]
+# PEP 420 namespace package。src/jidohub/__init__.py は存在させない。
+packages = ["src/jidohub"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/jidohub/core/py.typed" = "jidohub/core/py.typed"
+
+[tool.hatch.build.targets.sdist]
+# examples/ は参照用。sdist には含めるが wheel には含めない。
+include = [
+    "src/jidohub",
+    "examples",
+    "README.md",
+    "CLAUDE.md",
+    "pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# 既存コードの注釈を書き換えないよう、opinionated な UP / B は入れない。
+# （B は pydantic の Field(default_factory=...) を B008 で誤検出する。）
+select = ["E", "F", "I"]
+# 行長は formatter が管理する。E501 は formatter が折り返せない文字列・コメント
+# （日本語 docstring 等）だけを誤って咎めるため無効化する。
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+disallow_untyped_defs = true
+ignore_missing_imports = true
+# PEP 420 namespace package + src レイアウトのため、モジュール名を
+# jidohub.core.* として解決させる（core.* と二重に拾わせない）。
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# numpy 配列演算は型注釈が付けきれないため、当該モジュールに限定して緩和する。
+# 全体無効化はしない（CLAUDE.md 2.1 / タスク方針）。
+module = [
+    "jidohub.core.geometry",
+    "jidohub.core.serialization.codec",
+    "jidohub.core.serialization.envelope",
+]
+disable_error_code = ["no-any-return", "index", "arg-type", "assignment"]
+
+[[tool.mypy.overrides]]
+# hub.backends は boto3 クライアントを動的型で受け取り（fake 注入のため client=None）、
+# 一部の内部ヘルパが未注釈。既存コードを変更しない方針のため当該モジュールに限定して緩和する。
+module = ["jidohub.core.hub.backends"]
+disallow_untyped_defs = false
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+# テストは fixture 引数（tmp_path 等）が未注釈で、スキーマの Optional フィールドへの
+# アクセスで union-attr が多発する。テストでは型定義の厳格さを求めない。
+module = ["tests.*", "conftest"]
+disallow_untyped_defs = false
+disable_error_code = ["union-attr", "arg-type"]
