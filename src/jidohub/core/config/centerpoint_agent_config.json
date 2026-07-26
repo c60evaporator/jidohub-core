@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1",
+  "agent_id": "jidohub/CenterPoint-Pillar-nuScenes",
+  "task": "sensing-to-detection",
+  "sensors": {
+    "lidar": ["LIDAR_TOP"]
+  },
+  "implementation": {
+    "type": "native",
+    "native_class": "CenterPointAgent"
+  },
+  "runtime": {
+    "isolation": "not-required",
+    "gpu_required": true
+  },
+  "weights": [
+    {
+      "path": "weights/model.safetensors",
+      "format": "safetensors",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "platforms": ["python"],
+  "framework": {"torch": ">=2.1", "cuda": "12.1", "library": "custom"},
+  "license": "Apache-2.0",
+  "training_datasets": ["nuscenes/v1.0-trainval"],
+  "params": {
+    "voxel_size": [0.2, 0.2, 8.0],
+    "point_cloud_range": [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0],
+    "max_num_points_per_voxel": 20,
+    "score_threshold": 0.1
+  }
+}
