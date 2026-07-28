@@ -12,9 +12,14 @@ DB のマスタテーブル等に複製すると必ず乖離するため、Web/s
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 
 __all__ = ["TaskType", "IntermediateOutput", "Platform"]
+
+# タスク値は snake_case のみ許可（先頭は英小文字、以降は英小文字・数字・アンダースコア）。
+# ハイフン（kebab-case）を弾くための唯一のパターン定義。
+_TASK_VALUE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class TaskType(str, Enum):
@@ -25,8 +30,18 @@ class TaskType(str, Enum):
     出力スキーマの組を決定する。
 
     値は snake_case の文字列。JSON への直列化時はそのまま文字列になる
-    （``str`` を継承しているため）。
+    （``str`` を継承しているため）。値の形式は :data:`_TASK_VALUE_PATTERN` で
+    強制され、ハイフンを含む値は enum の定義（import）時点で ``ValueError`` になる。
     """
+
+    def __init__(self, value: str) -> None:
+        # 値は snake_case のみ。新しい値にハイフン（kebab-case）が混入したら、
+        # この enum を import した時点で落とす（テスト収集前に気付ける）。
+        if not _TASK_VALUE_PATTERN.fullmatch(value):
+            raise ValueError(
+                f"TaskType value {value!r} must match "
+                f"{_TASK_VALUE_PATTERN.pattern!r} (snake_case; ハイフン不可)"
+            )
 
     # --- 知覚系（単体タスク） -------------------------------------------
     OBJECT_DETECTION_3D = "object_detection_3d"
