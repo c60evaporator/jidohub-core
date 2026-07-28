@@ -246,7 +246,7 @@ class AgentConfig(BaseModel):
     Example:
         >>> config = AgentConfig.model_validate_json(text)
         >>> config.task
-        <TaskType.SENSING_TO_PLANNING: 'sensing-to-planning'>
+        <TaskType.SENSING_TO_PLANNING: 'sensing_to_planning'>
     """
 
     model_config = ConfigDict(extra="forbid", use_enum_values=False)
@@ -276,7 +276,7 @@ class AgentConfig(BaseModel):
     """重みファイル。学習済み重みを持たない Agent（ルールベース等）では空でよい。"""
 
     intermediate_outputs: list[IntermediateOutput] = Field(default_factory=list)
-    """公開する中間出力。``sensing-to-planning`` 以外では空でなければならない。
+    """公開する中間出力。``sensing_to_planning`` 以外では空でなければならない。
 
     ここで宣言した項目は、``E2EOutput`` の同名フィールドに実際に値が入ることを保証する契約。
     """

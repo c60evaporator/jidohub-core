@@ -186,7 +186,7 @@ def weights_config(sha: str | None) -> Any:
     data = {
         "schema_version": "0.1",
         "agent_id": "jidohub/Foo",
-        "task": "sensing-to-detection",
+        "task": "object_detection_3d",
         "sensors": {"lidar": ["LIDAR_TOP"]},
         "implementation": {"type": "native", "native_class": "FooAgent"},
         "runtime": {"isolation": "not-required"},

@@ -25,7 +25,7 @@ def native_config() -> dict[str, Any]:
     return {
         "schema_version": "0.1",
         "agent_id": "jidohub/CenterPoint",
-        "task": "sensing-to-detection",
+        "task": "object_detection_3d",
         "sensors": {"lidar": ["LIDAR_TOP"]},
         "implementation": {"type": "native", "native_class": "CenterPointAgent"},
         "runtime": {"isolation": "not-required", "gpu_required": True},
@@ -38,7 +38,7 @@ def remote_config() -> dict[str, Any]:
     return {
         "schema_version": "0.1",
         "agent_id": "acme/UniAD",
-        "task": "sensing-to-planning",
+        "task": "sensing_to_planning",
         "sensors": {"cameras": ["CAM_FRONT"], "requires_ego_state": True},
         "implementation": {
             "type": "remote_code",
@@ -64,7 +64,7 @@ def test_valid_native_config_parses() -> None:
     config = parse_agent_config(native_config())
     assert config.agent_id == "jidohub/CenterPoint"
     # use_enum_values=False なので task は enum のまま。
-    assert config.task.value == "sensing-to-detection"
+    assert config.task.value == "object_detection_3d"
 
 
 def test_valid_remote_config_parses() -> None:

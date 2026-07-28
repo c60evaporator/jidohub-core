@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "agent_id": "jidohub/CenterPoint-Pillar-nuScenes",
-  "task": "sensing-to-detection",
+  "task": "object_detection_3d",
   "sensors": {
     "lidar": ["LIDAR_TOP"]
   },

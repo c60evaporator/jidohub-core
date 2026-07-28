@@ -7,8 +7,8 @@
 0.x の期間は**破壊的変更を許容する**。以下の 2 つを実際にこの型へ
 押し込んで歪みがないことを確認するまで 1.0 にしない。
 
-1. CenterPoint（``sensing-to-detection``）
-2. UniAD（``sensing-to-planning``、中間出力を含む）
+1. CenterPoint（``object_detection_3d``）
+2. UniAD（``sensing_to_planning``、中間出力を含む）
 
 このモジュールがスキーマ契約バージョンと互換判定の**唯一の正**。
 serialization / config など他モジュールは判定ロジックを再実装せず、ここへ委譲すること。

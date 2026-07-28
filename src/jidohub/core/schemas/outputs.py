@@ -3,7 +3,7 @@
 :class:`~jidohub.core.tasks.TaskType` と 1 対 1 で対応する出力型を定義する。
 
 設計方針
-    E2E（``sensing-to-planning``）の中間出力は、単体タスクの出力型を
+    E2E（``sensing_to_planning``）の中間出力は、単体タスクの出力型を
     **再利用**して表現する。これにより UniAD の中間出力可視化を、
     Detection / Map 単体タスク用の可視化コードのまま実現できる。
     新しい中間出力を追加する際も、まず単体タスクの型として定義してから
@@ -140,7 +140,7 @@ class Box3D:
 class Detection3DOutput:
     """3D 物体検出・追跡の出力。
 
-    ``sensing-to-detection`` と ``sensing-to-track`` で共通。
+    ``object_detection_3d`` と ``sensing_to_track`` で共通。
     追跡の場合は各 :class:`Box3D` の ``track_id`` が埋まる。
 
     Attributes:
@@ -155,7 +155,7 @@ class Detection3DOutput:
 class MapElementType(str, Enum):
     """HD マップ要素の種別。
 
-    オンラインマップ構築（``sensing-to-map``）の出力と、
+    オンラインマップ構築（``sensing_to_map``）の出力と、
     nuScenes Map Expansion の GT の双方で使う共通語彙。
     """
 
@@ -196,7 +196,7 @@ class MapElement:
 
 @dataclass
 class MapOutput:
-    """オンライン HD マップ構築の出力（``sensing-to-map``）。
+    """オンライン HD マップ構築の出力（``sensing_to_map``）。
 
     Attributes:
         elements: マップ要素のリスト。
@@ -241,7 +241,7 @@ class MotionForecastOutput:
 
 @dataclass
 class PlanningOutput:
-    """自車の走行計画（``track-map-to-planning``）。
+    """自車の走行計画（``track_map_to_planning``）。
 
     Attributes:
         trajectory: shape ``(T, 2)`` または ``(T, 3)``、``np.float64``。
@@ -260,7 +260,7 @@ class PlanningOutput:
 
 @dataclass
 class E2EOutput:
-    """E2E モデルの出力（``sensing-to-planning``）。
+    """E2E モデルの出力（``sensing_to_planning``）。
 
     主たる出力は ``planning``。それ以外は**中間出力**であり、モデルが
     公開している場合のみ埋まる（``agent_config.json`` の
