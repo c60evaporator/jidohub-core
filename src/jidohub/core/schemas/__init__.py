@@ -20,6 +20,15 @@ from jidohub.core.schemas.outputs import (
     MotionForecastOutput,
     PlanningOutput,
 )
+from jidohub.core.schemas.image import (
+    EncodedImage,
+    ImageDecodeError,
+    ImageDecoder,
+    ImageFormat,
+    decode_image,
+    get_image_decoder,
+    register_image_decoder,
+)
 from jidohub.core.schemas.sample import (
     CameraFrame,
     DrivingCommand,
@@ -39,6 +48,14 @@ __all__ = [
     "RadarSweep",
     "EgoState",
     "DrivingCommand",
+    # 画像
+    "EncodedImage",
+    "ImageFormat",
+    "ImageDecoder",
+    "ImageDecodeError",
+    "register_image_decoder",
+    "get_image_decoder",
+    "decode_image",
     # 出力
     "CoordinateFrame",
     "Box3D",

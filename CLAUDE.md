@@ -159,10 +159,29 @@ core には**独立に動く 3 つのバージョン**がある。片方に合�
 | 速度 | m/s |
 | 角度 | ラジアン（rad） |
 | 時刻 | UNIX epoch の**マイクロ秒 `int`**（nuScenes準拠） |
-| 画像 | `np.uint8`, shape `(H, W, 3)`, **RGB順**（BGRにしない） |
+| 画像 | `pixels` と `encoded` の**排他**。`pixels` は `np.uint8`, shape `(H, W, 3)`, **RGB順**（BGRにしない） |
 | 点群 | `np.float32`, shape `(N, C)`。先頭3列は必ず x, y, z |
 | 変換行列 | `np.float64`, shape `(4, 4)` |
 | Box の size | `(length, width, height)` の順（x, y, z 軸方向に対応）。軸順との一致を優先した意図的な設計で、nuScenes（`(width, length, height)` 順）からは意図的に逸脱している。Adapter で必ず入れ替えが必要。個別アクセスは `size[0]` でなく `Box3D.length` / `width` / `height` プロパティを使う |
+
+### 3.5 画像の表現
+
+`CameraFrame` は画素を**生配列（`pixels`）か符号化バイト列（`encoded`）のどちらか一方**で
+保持する。両方を持つことも、両方 `None` にすることもできない（どちらが正かが曖昧になるため）。
+
+- **利用側は表現を意識しない。** `frame.image` は常に `(H, W, 3)` の `np.uint8` RGB を返す。
+  `encoded` の場合は初回アクセス時にデコードし、インスタンス内にキャッシュする
+  （キャッシュはフィールドではないため直列化されない）。
+  `if frame.is_encoded:` のような分岐を利用側に書かせないこと。
+- **プロセス境界を越える経路では `encoded` を使う。** 生画素の約 1/15 のサイズで運べる。
+  デコードのコストはどちらの設計でも 1 回発生するため、直列化と転送のコストだけが減る。
+  nuScenes をはじめ多くのデータセットは画像を JPEG で保持しているので、
+  Adapter は読み込んだバイト列をそのまま載せればよい。
+- **core はコーデックに依存しない。** デコーダは `register_image_decoder()` で
+  jidohub-datasets / jidohub-agents 側が注入する（Pillow / OpenCV / nvJPEG など）。
+  デコーダは **必ず RGB を返す**契約であり、色空間はスキーマに持たない。
+- 画像サイズは `frame.height` / `frame.width` で**デコードせずに**取得できる。
+  サイズを知るためだけにデコードさせないこと。
 
 ---
 

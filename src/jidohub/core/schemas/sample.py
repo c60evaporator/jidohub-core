@@ -9,7 +9,13 @@
     - ego 座標系は右手系で ``x`` = 前方、``y`` = 左方、``z`` = 上方。
     - 変換行列は 4x4 同次変換行列（``np.float64``）で、名前が向きを表す。
     - 時刻は UNIX epoch のマイクロ秒 ``int``。
-    - 画像は ``np.uint8`` の ``(H, W, 3)``、**RGB 順**。
+    - **画像は生画素（``pixels``）か符号化バイト列（``encoded``）のどちらか一方**で
+      保持する（排他）。生画素は ``np.uint8`` の ``(H, W, 3)``、**RGB 順**。
+      利用側は表現を意識せず :attr:`CameraFrame.image` を使う。常に RGB が返る。
+    - プロセス境界を越える経路では ``encoded`` を推奨する
+      （生画素の約 1/15 のサイズで運べる）。デコードは
+      :func:`~jidohub.core.schemas.image.register_image_decoder` で
+      jidohub-datasets / jidohub-agents 側が注入する。
     - 点群は ``np.float32`` の ``(N, C)`` で、先頭 3 列が x, y, z。
     - **点群はセンサ座標系のまま保持する。** ego 座標が必要な場合は
       各 sweep の :meth:`LidarSweep.points_in_ego` を使う。
@@ -23,6 +29,7 @@ from enum import Enum
 import numpy as np
 
 from jidohub.core.geometry import transform_points
+from jidohub.core.schemas.image import EncodedImage, decode_image
 
 __all__ = [
     "DrivingCommand",
@@ -50,31 +57,95 @@ class DrivingCommand(str, Enum):
 class CameraFrame:
     """単一カメラの 1 フレーム。
 
+    画素は **生配列（``pixels``）か符号化バイト列（``encoded``）のどちらか一方**で
+    保持する。両方を同時に持つことも、両方 ``None`` にすることもできない
+    （どちらが正かが曖昧になり、二重の正が生まれるため）。
+
+    利用側は表現を意識せず :attr:`image` にアクセスすればよい。
+    符号化されている場合は初回アクセス時にデコードされ、以後はキャッシュされる。
+
     Attributes:
-        image: shape ``(H, W, 3)``、``np.uint8``、**RGB 順**。BGR で入れないこと。
         intrinsic: shape ``(3, 3)``、``np.float64``。ピンホールカメラの内部パラメータ。
         sensor_to_ego: shape ``(4, 4)``、``np.float64``。
             カメラ座標系 → ego 座標系の同次変換。逆向きではない。
         channel: センサチャンネル名（例: ``"CAM_FRONT"``）。
             :class:`Sample` の ``cameras`` のキーと一致させる。
+        pixels: shape ``(H, W, 3)``、``np.uint8``、**RGB 順**。BGR で入れないこと。
+            デコード済みの画素を直接持つ場合に使う。
+        encoded: 符号化された画像。プロセス境界を越える経路ではこちらを推奨する
+            （生配列の約 1/15 のサイズで運べる）。
         distortion: レンズ歪み係数。OpenCV の ``(k1, k2, p1, p2, k3, ...)`` 順。
             歪み補正済み画像の場合は ``None``。
         timestamp: このフレーム固有の取得時刻[μs]。
             センサ間で取得時刻が異なる場合に使う。``None`` なら ``Sample.timestamp`` を用いる。
     """
 
-    image: np.ndarray
     intrinsic: np.ndarray
     sensor_to_ego: np.ndarray
     channel: str
+    pixels: np.ndarray | None = None
+    encoded: EncodedImage | None = None
     distortion: np.ndarray | None = None
     timestamp: int | None = None
 
     def __post_init__(self) -> None:
         _check_shape("CameraFrame.intrinsic", self.intrinsic, (3, 3))
         _check_shape("CameraFrame.sensor_to_ego", self.sensor_to_ego, (4, 4))
-        if self.image.ndim != 3 or self.image.shape[2] != 3:
-            raise ValueError(f"CameraFrame.image must have shape (H, W, 3), got {self.image.shape}")
+
+        if (self.pixels is None) == (self.encoded is None):
+            raise ValueError(
+                "CameraFrame requires exactly one of 'pixels' or 'encoded' to be set"
+            )
+        if self.pixels is not None:
+            if self.pixels.ndim != 3 or self.pixels.shape[2] != 3:
+                raise ValueError(
+                    f"CameraFrame.pixels must have shape (H, W, 3), got {self.pixels.shape}"
+                )
+            if self.pixels.dtype != np.uint8:
+                raise ValueError(
+                    f"CameraFrame.pixels must be uint8 (RGB), got {self.pixels.dtype}"
+                )
+
+        # デコード結果のキャッシュ。dataclass のフィールドではないため直列化されない
+        self._decoded: np.ndarray | None = None
+
+    @property
+    def image(self) -> np.ndarray:
+        """画素を shape ``(H, W, 3)``、``np.uint8``、RGB 順で返す。
+
+        ``encoded`` のみを保持している場合は初回アクセス時にデコードし、
+        結果をインスタンス内にキャッシュする（キャッシュは直列化されない）。
+
+        Raises:
+            ImageDecodeError: デコーダが未登録の場合。
+                jidohub-datasets を import するか、
+                :func:`~jidohub.core.schemas.image.register_image_decoder` を呼ぶこと。
+        """
+        if self.pixels is not None:
+            return self.pixels
+        if self._decoded is None:
+            assert self.encoded is not None  # __post_init__ で保証済み
+            self._decoded = decode_image(self.encoded)
+        return self._decoded
+
+    @property
+    def height(self) -> int:
+        """画像の高さ[px]。**デコードせずに**取得できる。"""
+        return int(self.pixels.shape[0]) if self.pixels is not None else self.encoded.height
+
+    @property
+    def width(self) -> int:
+        """画像の幅[px]。**デコードせずに**取得できる。"""
+        return int(self.pixels.shape[1]) if self.pixels is not None else self.encoded.width
+
+    @property
+    def is_encoded(self) -> bool:
+        """符号化された表現を保持しているか。
+
+        直列化コストの見積もりなど、表現の違いが本質的に効く場面でのみ使う。
+        画素が欲しいだけなら :attr:`image` を使い、分岐を書かないこと。
+        """
+        return self.encoded is not None
 
 
 @dataclass
