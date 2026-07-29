@@ -22,7 +22,7 @@ core がコーデックに依存しない理由
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
@@ -90,9 +90,7 @@ class EncodedImage:
                 f"got shape={self.data.shape} dtype={self.data.dtype}"
             )
         if self.height <= 0 or self.width <= 0:
-            raise ValueError(
-                f"EncodedImage size must be positive, got {self.width}x{self.height}"
-            )
+            raise ValueError(f"EncodedImage size must be positive, got {self.width}x{self.height}")
 
     @classmethod
     def from_bytes(

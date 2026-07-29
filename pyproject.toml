@@ -47,6 +47,7 @@ include = [
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 # UP（pyupgrade）は既存コードの型注釈を書き換えるため入れない。

@@ -43,10 +43,10 @@ def test_sample_timestamp_accepts_numpy_integer() -> None:
     assert int(sample.timestamp) == 42
 
 
-def test_camera_frame_image_must_be_3d_rgb() -> None:
-    with pytest.raises(ValueError, match="CameraFrame.image must have shape"):
+def test_camera_frame_pixels_must_be_3d_rgb() -> None:
+    with pytest.raises(ValueError, match="CameraFrame.pixels must have shape"):
         CameraFrame(
-            image=np.zeros((4, 6), dtype=np.uint8),  # 2 次元は不正
+            pixels=np.zeros((4, 6), dtype=np.uint8),  # 2 次元は不正
             intrinsic=np.eye(3, dtype=np.float64),
             sensor_to_ego=make_transform(),
             channel="CAM_FRONT",
@@ -56,7 +56,7 @@ def test_camera_frame_image_must_be_3d_rgb() -> None:
 def test_camera_frame_intrinsic_wrong_shape() -> None:
     with pytest.raises(ValueError, match="CameraFrame.intrinsic must have shape"):
         CameraFrame(
-            image=np.zeros((4, 6, 3), dtype=np.uint8),
+            pixels=np.zeros((4, 6, 3), dtype=np.uint8),
             intrinsic=np.eye(4, dtype=np.float64),
             sensor_to_ego=make_transform(),
             channel="CAM_FRONT",

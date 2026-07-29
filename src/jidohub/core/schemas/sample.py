@@ -93,18 +93,14 @@ class CameraFrame:
         _check_shape("CameraFrame.sensor_to_ego", self.sensor_to_ego, (4, 4))
 
         if (self.pixels is None) == (self.encoded is None):
-            raise ValueError(
-                "CameraFrame requires exactly one of 'pixels' or 'encoded' to be set"
-            )
+            raise ValueError("CameraFrame requires exactly one of 'pixels' or 'encoded' to be set")
         if self.pixels is not None:
             if self.pixels.ndim != 3 or self.pixels.shape[2] != 3:
                 raise ValueError(
                     f"CameraFrame.pixels must have shape (H, W, 3), got {self.pixels.shape}"
                 )
             if self.pixels.dtype != np.uint8:
-                raise ValueError(
-                    f"CameraFrame.pixels must be uint8 (RGB), got {self.pixels.dtype}"
-                )
+                raise ValueError(f"CameraFrame.pixels must be uint8 (RGB), got {self.pixels.dtype}")
 
         # デコード結果のキャッシュ。dataclass のフィールドではないため直列化されない
         self._decoded: np.ndarray | None = None
@@ -131,12 +127,18 @@ class CameraFrame:
     @property
     def height(self) -> int:
         """画像の高さ[px]。**デコードせずに**取得できる。"""
-        return int(self.pixels.shape[0]) if self.pixels is not None else self.encoded.height
+        if self.pixels is not None:
+            return int(self.pixels.shape[0])
+        assert self.encoded is not None  # __post_init__ で排他保証済み
+        return self.encoded.height
 
     @property
     def width(self) -> int:
         """画像の幅[px]。**デコードせずに**取得できる。"""
-        return int(self.pixels.shape[1]) if self.pixels is not None else self.encoded.width
+        if self.pixels is not None:
+            return int(self.pixels.shape[1])
+        assert self.encoded is not None  # __post_init__ で排他保証済み
+        return self.encoded.width
 
     @property
     def is_encoded(self) -> bool:

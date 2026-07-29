@@ -59,9 +59,7 @@ _ENUM_TYPES: tuple[type[Enum], ...] = (
     tasks.Platform,
 )
 
-TYPE_REGISTRY: dict[str, type] = {
-    cls.__name__: cls for cls in (*_DATACLASS_TYPES, *_ENUM_TYPES)
-}
+TYPE_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in (*_DATACLASS_TYPES, *_ENUM_TYPES)}
 """デコード時に復元を許可する型の許可リスト。
 
 **新しいスキーマ型を追加したら必ずここに登録する。** 登録漏れは

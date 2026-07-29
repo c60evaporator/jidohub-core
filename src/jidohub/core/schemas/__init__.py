@@ -8,6 +8,15 @@
 
 from __future__ import annotations
 
+from jidohub.core.schemas.image import (
+    EncodedImage,
+    ImageDecodeError,
+    ImageDecoder,
+    ImageFormat,
+    decode_image,
+    get_image_decoder,
+    register_image_decoder,
+)
 from jidohub.core.schemas.outputs import (
     AgentForecast,
     Box3D,
@@ -19,15 +28,6 @@ from jidohub.core.schemas.outputs import (
     MapOutput,
     MotionForecastOutput,
     PlanningOutput,
-)
-from jidohub.core.schemas.image import (
-    EncodedImage,
-    ImageDecodeError,
-    ImageDecoder,
-    ImageFormat,
-    decode_image,
-    get_image_decoder,
-    register_image_decoder,
 )
 from jidohub.core.schemas.sample import (
     CameraFrame,

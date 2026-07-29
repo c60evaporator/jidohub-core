@@ -303,11 +303,9 @@ agent = AutoAgent.from_pretrained(
 
 ```python
 # JPEG転送
-agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", runner="remote_code",
-                                  transport="stream")
+agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", transport="stream")
 # 生画素メモリ共有
-agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", runner="remote_code",
-                                  transport="shm")
+agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", transport="shm")
 ```
 
 デフォルトでは`transport="auto"`が利用され、「`runner="inprocess"`なら転送なし、`runner="docker"`なら`transport="shm"`を指定する」という動作をします。
@@ -346,8 +344,7 @@ def build_sample_encoded(record: Any) -> Sample:
         sample_id=record.token,
     )
 
-agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", runner="remote_code",
-                                  transport="stream")
+agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", transport="stream")
 # ここにrecord取得処理を記載（ファイルから読込等）
 sample = build_sample_encoded(record)
 output = agent.predict(sample)
@@ -373,8 +370,7 @@ def build_sample_raw(frame_buffers: dict[str, np.ndarray], record: Any) -> Sampl
         cameras=cameras,
     )
 
-agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", runner="remote_code",
-                                  transport="shm")
+agent = AutoAgent.from_pretrained("acme/UniAD-tiny@v1.2", transport="shm")
 # ここにrecord取得処理を記載（センサから画素値受取等）
 sample = build_sample_encoded(record)
 output = agent.predict(sample)

@@ -52,7 +52,7 @@ def make_transform(translation: tuple[float, float, float] = (1.0, 2.0, 3.0)) ->
 
 def make_camera_frame(channel: str = "CAM_FRONT") -> CameraFrame:
     return CameraFrame(
-        image=np.zeros((4, 6, 3), dtype=np.uint8),
+        pixels=np.zeros((4, 6, 3), dtype=np.uint8),
         intrinsic=np.eye(3, dtype=np.float64),
         sensor_to_ego=make_transform(),
         channel=channel,
