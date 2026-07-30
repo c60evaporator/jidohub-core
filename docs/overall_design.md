@@ -1,5 +1,7 @@
 # jidohubプラットフォーム
 
+jidohub-coreに限らない、jidohubプラットフォームの設計概要を記載する。
+
 ## jidohubとは
 
 jidohubは、世界中のユーザーが開発した自動運転スタックを共有するためのプラットフォームです。
@@ -22,12 +24,9 @@ jidohubのリポジトリは、以下2種類に分けられます
 - Dataset: センサデータやアノテーションを含む自動運転用のデータセット。ベンチマークとして使用することも想定する
 - Interface: Agentの入出力形式と、実車・シミュレーションとの入出力形式を変換するアダプタ
 
-jidohub は自動運転向けの Agent / Dataset / Interface 共有プラットフォーム。
-リポジトリ構成は以下の5つで、**core は他の4つすべてが依存する共通基盤**。
-
 ### jodohubのリポジトリ構成
 
-jidohub本体は、以下のリポジトリで構成される
+jidohub本体は、以下のリポジトリで構成される。**core は他の4つすべてが依存する共通基盤**。
 
 | リポジトリ | 役割 |
 |---|---|
@@ -86,7 +85,7 @@ Agentのタスクや実装方法等の属性情報を記述します。以下の
 |---|---|---|---|
 | schema_version | ✅ | str | スキーマのバージョン |
 | agent_id | ✅ | str | Agentのタグ（jidohub_webでの検索IDとなる） |
-| task | ✅ | str | タスク名 |
+| task | ✅ | str | タスク種別 |
 | sensors.cameras | | list[str] | カメラ名のリスト |
 | sensors.requires_ego_state | | bool | 入力に自己位置が必須か |
 | sensors.requires_command | | bool | 入力にコマンドが必須か |
@@ -144,25 +143,17 @@ UniADでの記載例を示します
 }
 ```
 
-### Agentのタスク一覧
-
-#### Planning系
-
-| タスク名 | 入力 | 出力 | 出力dataclass | 役割 |
-|---|---|---|---|---|
-| sensing_to_planning | センサデータ（画像・LiDAR等） | 予測軌跡 | `E2EOutput` | いわゆる**End-to-end自動運転** |
-| vision_language_action | センサデータ（画像）＋テキスト | 予測軌跡＋テキスト | `VLAOutput` | いわゆる**VLA自動運転** |
-| planning | 周囲オブジェクト位置（`Detection3DOutput`）＋マップ情報（`MapOutput`）＋自己位置（`EgoState`） | 予測軌跡 | `PlanningOutput` | Perceptionなしのplanning用モデル |
+### Agentのタスク種別一覧
 
 #### Perception系
 
 | タスク名 | 入力 | 出力 | 出力dataclass | 役割 |
 |---|---|---|---|---|
 | object_detection_3d | センサデータ（画像・LiDAR等） | 3D bounding box | `Detection3DOutput` | 3D物体検出 |
-| object_tracking_3d | 複数フレームのセンサデータ（画像・LiDAR等） | 3D bounding box＋tracking_id | `Tracking3DOutput` | 3Dトラッキング |
+| object_tracking_3d | 複数フレームのセンサデータ（画像・LiDAR等） | 複数フレームの3D bounding box＋track_id | `Tracking3DOutput` | 3Dトラッキング |
 | map_construction | センサデータ（画像・LiDAR等） | ベクトル化された地図表現 | `MapOutput` | オンラインHD地図構築（MapTR等） |
 | object_detection_2d | 画像 （Grounding DINOのようにテキストプロンプトも入力する場合あり）| 2D bounding box | `Detection2DOutput` | 2D物体検出 |
-| object_tracking_2d | 複数フレーム画像 | 2D bounding box＋tracking_id | `Tracking2DOutput` | 2Dトラッキング |
+| object_tracking_2d | 複数フレーム画像 | 複数フレームの2D bounding box＋track_id | `Tracking2DOutput` | 2Dトラッキング |
 | instance_segmentation_2d | 画像（SAM3のようにポイントやテキストプロンプトも入力する場合あり） | インスタンスマスク | `InstanceSegmentation2DOutput` | インスタンスセグメンテーション |
 | instance_segmentation_2d_tracking | 複数フレーム画像（SAM3のようにポイントやテキストプロンプトも入力する場合あり） | 各フレームのインスタンスマスク＋track_id | `InstanceSegmentation2DTrackingOutput` | インスタンスセグメンテーション＋トラッキング |
 | semantic_segmentation_2d | 画像 | セグメンテーションマスク | `SemanticSegmentation2DOutput` | セマンティックセグメンテーション |
@@ -178,6 +169,14 @@ UniADでの記載例を示します
 |---|---|---|---|---|
 | motion_forecasting | 未定 | 周囲オブジェクトの将来位置予測 | `MotionForecastOutput` | 周囲オブジェクトの将来位置予測 |
 | occupancy_prediction | 未定 | Occupancy予測 | `OccupancyOutput` | Occupancy予測 |
+
+#### Planning系
+
+| タスク名 | 入力 | 出力 | 出力dataclass | 役割 |
+|---|---|---|---|---|
+| sensing_to_planning | センサデータ（画像・LiDAR等） | 予測軌跡 | `E2EOutput` | いわゆる**End-to-end自動運転** |
+| vision_language_action | センサデータ（画像）＋テキスト | 予測軌跡＋テキスト | `VLAOutput` | いわゆる**VLA自動運転** |
+| track_map_to_planning | 周囲オブジェクト位置（`Detection3DOutput`）＋マップ情報（`MapOutput`）＋自己位置（`EgoState`） | 予測軌跡 | `PlanningOutput` | Perceptionなしのplanning用モデル |
 
 #### Control系
 
