@@ -6,7 +6,7 @@ DB のマスタテーブル等に複製すると必ず乖離するため、Web/s
 
 命名は原則 ``<入力>_to_<出力>`` のスキームに従う。これにより
 「Agent の入出力形式でフィルタする」というプラットフォームの検索軸と
-タスク定義が 1 対 1 で対応する。ただし知覚系（Perception）の単体タスクは
+タスク定義が 1 対 1 で対応する。ただしPerception系の単体タスクは
 慣用に従い ``object_detection_3d`` のようにタスク内容そのものを名前にする。
 """
 
@@ -43,23 +43,57 @@ class TaskType(str, Enum):
                 f"{_TASK_VALUE_PATTERN.pattern!r} (snake_case; ハイフン不可)"
             )
 
-    # --- 知覚系（単体タスク） -------------------------------------------
+    # --- Perception系（単体タスク） -------------------------------------------
     OBJECT_DETECTION_3D = "object_detection_3d"
     """センサ入力 → 3D 物体検出。出力は ``Detection3DOutput``。
 
     例: CenterPoint, TransFusion, BEVFusion
     """
 
-    SENSING_TO_TRACK = "sensing_to_track"
-    """センサ入力 → 3D 物体追跡。出力は ``Detection3DOutput``（``track_id`` 付き）。"""
+    OBJECT_TRACKING_3D = "object_tracking_3d"
+    """
+    複数フレームのセンサ or Detection3DOutputを入力 → 3D 物体追跡。出力は ``Tracking3DOutput``（``track_id`` 付き）。
 
-    SENSING_TO_MAP = "sensing_to_map"
+    例: AB3DMOT, CenterPoint Tracking
+    """
+
+    MAP_CONSTRUCTION = "map_construction"
     """センサ入力 → オンライン HD マップ構築。出力は ``MapOutput``。
 
     例: MapTR, HDMapNet
     """
 
-    # --- 統合系 ---------------------------------------------------------
+    OBJECT_DETECTION_2D = "object_detection_2d"
+    """画像入力 → 2D 物体検出。出力は ``Detection2DOutput``。
+
+    例: YOLO, GroundingDINO
+    """
+
+    OBJECT_TRACKING_2D = "object_tracking_2d"
+    """
+    複数フレームの画像 or Detection2DOutputを入力 → 2D 物体追跡。出力は ``Tracking2DOutput``（``track_id`` 付き）。
+
+    例: SORT, DeepSORT
+    """
+
+    INSTANCE_SEGMENTATION_2D = "instance_segmentation_2d"
+    """
+    画像入力 → インスタンスマスク。出力は ``InstanceSegmentation2DOutput``。
+
+    例: Mask2Former, SAM
+    """
+
+    INSTANCE_SEGMENTATION_2D_TRACKING = "instance_segmentation_2d_tracking"
+    """
+    複数フレーム画像入力 → インスタンスマスク追跡。出力は ``InstanceSegmentation2DTrackingOutput``（``track_id`` 付き）。
+
+    例: SAM2, SAM3
+    """
+
+    # --- Prediction系（単体タスク） -------------------------------------------
+
+
+    # --- Planning系 ---------------------------------------------------------
     SENSING_TO_PLANNING = "sensing_to_planning"
     """センサ入力 → 走行軌跡（E2E）。出力は ``E2EOutput``。
 
@@ -68,7 +102,7 @@ class TaskType(str, Enum):
     例: UniAD, VAD
     """
 
-    SENSING_TO_PLANNING_TEXT = "sensing_to_planning_text"
+    VISION_LANGUAGE_ACTION = "vision_language_action"
     """センサ入力 → 走行軌跡 + 自然言語（VLA）。出力は ``VLAOutput``（将来定義）。
 
     Phase 1 では出力スキーマ未定義。enum の値のみ予約する。
@@ -77,6 +111,7 @@ class TaskType(str, Enum):
     TRACK_MAP_TO_PLANNING = "track_map_to_planning"
     """追跡結果 + マップ → 走行軌跡（プランナ単体）。出力は ``PlanningOutput``。"""
 
+    # --- Control系 ---------------------------------------------------------
     PLANNING_TO_CONTROL = "planning_to_control"
     """走行軌跡 → 制御指令（コントローラ単体）。出力は ``ControlOutput``（将来定義）。
 

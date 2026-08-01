@@ -140,7 +140,7 @@ class Box3D:
 class Detection3DOutput:
     """3D 物体検出・追跡の出力。
 
-    ``object_detection_3d`` と ``sensing_to_track`` で共通。
+    ``object_detection_3d`` と ``object_tracking_3d`` で共通。
     追跡の場合は各 :class:`Box3D` の ``track_id`` が埋まる。
 
     Attributes:

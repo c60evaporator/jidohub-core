@@ -158,7 +158,7 @@ UniADでの記載例を示します
 | instance_segmentation_2d_tracking | 複数フレーム画像（SAM3のようにポイントやテキストプロンプトも入力する場合あり） | 各フレームのインスタンスマスク＋track_id | `InstanceSegmentation2DTrackingOutput` | インスタンスセグメンテーション＋トラッキング |
 | semantic_segmentation_2d | 画像 | セグメンテーションマスク | `SemanticSegmentation2DOutput` | セマンティックセグメンテーション |
 | panoptic_segmentation_2d | 画像 | セグメンテーションマスク＋インスタンスマスク | `PanopticSegmentation2DOutput` | パノプティックセグメンテーション |
-| image_classification | 画像 | 各フレームのインスタンスマスクとtrack_id | `ClassificationOutput` | 画像分類 |
+| image_classification_2d | 画像 | 各フレームのインスタンスマスクとtrack_id | `Classification2DOutput` | 画像分類 |
 | depth_estimation | 画像または複数フレーム画像 | 深度画像 | `DepthOutput` | 単眼深度推定（Depth Anything v2のような相対深度モデル、Metric3Dのようなメトリックモデル、Video Depth Anythingのような複数フレーム入力モデルを内包） |
 | multi_view_reconstruction | 多視点画像 | カメラパラメータ・深度画像・point map・point track等 | `ReconstructionOutput` | 3次元再構成（VGGT等） |
 | video_text_to_text | 画像＋テキスト | テキスト | `TextOutput` | LLMベースVLM |
