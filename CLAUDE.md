@@ -166,13 +166,19 @@ core には**独立に動く 3 つのバージョン**がある。片方に合�
 
 ### 3.5 画像の表現
 
-`CameraFrame` は画素を**生配列（`pixels`）か符号化バイト列（`encoded`）のどちらか一方**で
-保持する。両方を持つことも、両方 `None` にすることもできない（どちらが正かが曖昧になるため）。
+画像そのものは `Image` が表す。`Image` は画素を**生配列（`pixels`）か符号化バイト列
+（`encoded: EncodedPixels`）のどちらか一方**で保持する。両方を持つことも、両方 `None` に
+することもできない（どちらが正かが曖昧になるため）。`CameraFrame` は「`Image` + カメラの
+取り付け情報（`sensor_to_ego`）」の合成であり、画素・`intrinsic`・`distortion` は保持しない。
 
-- **利用側は表現を意識しない。** `frame.image` は常に `(H, W, 3)` の `np.uint8` RGB を返す。
+- **`intrinsic` の唯一の正は `Image`。** `CameraFrame` に重複して持たせない（二重の正を作らない）。
+  `CameraFrame.__post_init__` は `image.intrinsic is not None` の検証のみ行う。
+- **`frame.image.array` に統一する。** `CameraFrame.array` のようなショートカットは作らない
+  （書き方が二通りになるため）。利用側は常に `frame.image.array`（または `image.array`）を使う。
+- **利用側は表現を意識しない。** `image.array` は常に `(H, W, 3)` の `np.uint8` RGB を返す。
   `encoded` の場合は初回アクセス時にデコードし、インスタンス内にキャッシュする
   （キャッシュはフィールドではないため直列化されない）。
-  `if frame.is_encoded:` のような分岐を利用側に書かせないこと。
+  `if image.is_encoded:` のような分岐を利用側に書かせないこと。
 - **プロセス境界を越える経路では `encoded` を使う。** 生画素の約 1/15 のサイズで運べる。
   デコードのコストはどちらの設計でも 1 回発生するため、直列化と転送のコストだけが減る。
   nuScenes をはじめ多くのデータセットは画像を JPEG で保持しているので、
@@ -180,7 +186,7 @@ core には**独立に動く 3 つのバージョン**がある。片方に合�
 - **core はコーデックに依存しない。** デコーダは `register_image_decoder()` で
   jidohub-datasets / jidohub-agents 側が注入する（Pillow / OpenCV / nvJPEG など）。
   デコーダは **必ず RGB を返す**契約であり、色空間はスキーマに持たない。
-- 画像サイズは `frame.height` / `frame.width` で**デコードせずに**取得できる。
+- 画像サイズは `image.height` / `image.width` で**デコードせずに**取得できる。
   サイズを知るためだけにデコードさせないこと。
 
 ---

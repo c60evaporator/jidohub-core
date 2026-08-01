@@ -10,10 +10,11 @@ src/
     └── core/
         ├── __init__.py
         ├── tasks.py             タスク種別、中間出力、実行プラットフォームの一覧を定義
-        ├── geometry.py          座標変換・回転表現のヘルパ（純 numpy）
+        ├── geometry.py          座標変換・回転表現・intrinsic の crop/scale 追従（純 numpy）
         ├── schemas/             標準スキーマ（dataclass）
         │   ├── __init__.py      再エクスポート
         │   ├── version.py       SCHEMA_VERSION / assert_compatible / is_compatible（互換判定の唯一の正）
+        │   ├── image.py         画像: Image / EncodedPixels / ImageSource / デコーダ注入
         │   ├── sample.py        入力: Sample / CameraFrame / LidarSweep /
         │   │                    RadarSweep / EgoState / DrivingCommand
         │   └── outputs.py       出力: Box3D / Detection3DOutput / MapOutput /

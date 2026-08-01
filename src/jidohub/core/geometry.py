@@ -20,6 +20,8 @@ __all__ = [
     "yaw_to_quaternion",
     "invert_transform",
     "transform_points",
+    "crop_intrinsic",
+    "scale_intrinsic",
 ]
 
 
@@ -123,4 +125,48 @@ def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
 
     result = points.copy()
     result[:, :3] = transformed.astype(points.dtype)
+    return result
+
+
+def crop_intrinsic(intrinsic: np.ndarray, x0: float, y0: float) -> np.ndarray:
+    """crop 後の画像に対応する内部パラメータ ``K`` を返す（主点を平行移動）。
+
+    画素座標の原点は左上（``x`` 右・``y`` 下）。``(x0, y0)`` を新しい原点にする
+    切り出しでは、主点 ``(cx, cy)`` が同じだけ左上へ移動する（焦点距離は不変）。
+    元画像上の点 ``(u, v)`` は crop 後に ``(u - x0, v - y0)`` に写る。
+
+    Args:
+        intrinsic: shape ``(3, 3)`` のピンホール内部パラメータ。
+        x0: crop 左端の x 座標[px]。
+        y0: crop 上端の y 座標[px]。
+
+    Returns:
+        shape ``(3, 3)``、``np.float64`` の新しい ``K``。**入力は破壊しない。**
+    """
+    result = np.array(intrinsic, dtype=np.float64, copy=True)
+    result[0, 2] -= x0
+    result[1, 2] -= y0
+    return result
+
+
+def scale_intrinsic(intrinsic: np.ndarray, scale_x: float, scale_y: float) -> np.ndarray:
+    """リサイズ後の画像に対応する内部パラメータ ``K`` を返す（焦点距離と主点をスケール）。
+
+    画像を ``(scale_x, scale_y)`` 倍にリサンプルすると、焦点距離 ``(fx, fy)`` と
+    主点 ``(cx, cy)`` が同じ倍率でスケールする。実際の画素のリサンプリングは行わない
+    （それは画像処理ライブラリの責務であり core は持たない）。``K`` の更新のみを担う。
+
+    Args:
+        intrinsic: shape ``(3, 3)`` のピンホール内部パラメータ。
+        scale_x: x 方向の拡大率（現サイズ / 元サイズ）。
+        scale_y: y 方向の拡大率。
+
+    Returns:
+        shape ``(3, 3)``、``np.float64`` の新しい ``K``。**入力は破壊しない。**
+    """
+    result = np.array(intrinsic, dtype=np.float64, copy=True)
+    result[0, 0] *= scale_x
+    result[0, 2] *= scale_x
+    result[1, 1] *= scale_y
+    result[1, 2] *= scale_y
     return result

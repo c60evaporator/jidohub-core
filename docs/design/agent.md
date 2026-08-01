@@ -7,7 +7,7 @@
 ||JPEG転送（使い勝手重視）|生画素メモリ共有（速度重視）|
 |---|---|---|
 |転送方法|HTTP / gRPC（バイトストリーム）|共有メモリ（/dev/shm）|
-|転送時のデータ形式|JPEGバイト列（`EncodedImage`）|生画素（`pixels`）。将来的にはNV12も検討|
+|転送時のデータ形式|JPEGバイト列（`EncodedPixels`）|生画素（`pixels`）。将来的にはNV12も検討|
 |メリット|Python API呼び出しとAgentが別マシンでも動く|高速|
 |ユースケース|viewerでの可視化、評価ジョブ、自動アノテーション、クロスホスト構成|実車のdockerデプロイ、閉ループシミュレーション、同一ホストでの高頻度推論|
 
@@ -27,7 +27,7 @@ sequenceDiagram
 
     C->>D: get_sample(token)
     D->>D: JPEGファイルを読む<br/>※デコードしない
-    D-->>C: Sample<br/>cameras[ch].encoded = EncodedImage
+    D-->>C: Sample<br/>cameras[ch].image.encoded = EncodedPixels
     C->>S: pack(sample)
     S-->>C: bytes（6カメラ 約1.7MB）
     C->>N: POST /predict （bodyにbytes）
@@ -35,7 +35,7 @@ sequenceDiagram
     R->>S: unpack(body, copy=False)
     S-->>R: Sample（ゼロコピー）
     R->>A: agent.predict(sample)
-    A->>A: frame.image で初回のみデコード<br/>nvJPEG 約5ms / CPU 約36ms
+    A->>A: frame.image.array で初回のみデコード<br/>nvJPEG 約5ms / CPU 約36ms
     Note over A: デコーダはコンテナ側で注入済み<br/>Agent実装は表現を意識しない
     A-->>R: Detection3DOutput
     R->>S: pack(output)（数十KB）
@@ -74,7 +74,7 @@ sequenceDiagram
     R->>M: 該当スロットを参照
     R->>R: unpack(view, copy=False)<br/>ゼロコピー（約1ms）
     R->>A: agent.predict(sample)
-    A->>A: frame.image は pixels をそのまま返す
+    A->>A: frame.image.array は pixels をそのまま返す
     Note over A: デコードなし・可逆<br/>Agent実装はプロファイルAと同一
     A-->>R: Detection3DOutput
     R->>M: 出力スロットへ pack_into
@@ -113,7 +113,8 @@ import numpy as np
 from jidohub.core.schemas import (
     CameraFrame,
     Detection3DOutput,
-    EncodedImage,
+    EncodedPixels,
+    Image,
     ImageFormat,
     LidarSweep,
     Sample,
@@ -135,15 +136,17 @@ def build_sample_encoded(record: Any) -> Sample:
     for channel, meta in record.cameras.items():
         raw = Path(meta.path).read_bytes()
         cameras[channel] = CameraFrame(
-            intrinsic=meta.intrinsic,
+            image=Image(
+                encoded=EncodedPixels.from_bytes(
+                    raw,
+                    ImageFormat.JPEG,
+                    height=meta.height,
+                    width=meta.width,
+                ),
+                intrinsic=meta.intrinsic,
+            ),
             sensor_to_ego=meta.sensor_to_ego,
             channel=channel,
-            encoded=EncodedImage.from_bytes(
-                raw,
-                ImageFormat.JPEG,
-                height=meta.height,
-                width=meta.width,
-            ),
         )
 
     return Sample(
@@ -196,10 +199,12 @@ def build_sample_raw(frame_buffers: dict[str, np.ndarray], record: Any) -> Sampl
     """
     cameras = {
         channel: CameraFrame(
-            intrinsic=record.intrinsics[channel],
+            image=Image(
+                pixels=pixels,  # (H, W, 3) uint8 RGB
+                intrinsic=record.intrinsics[channel],
+            ),
             sensor_to_ego=record.extrinsics[channel],
             channel=channel,
-            pixels=pixels,  # (H, W, 3) uint8 RGB
         )
         for channel, pixels in frame_buffers.items()
     }
@@ -277,19 +282,19 @@ def profile_b_example(
 class ExampleAgent:
     """Agent は転送プロファイルを一切意識しない。
 
-    ``frame.image`` は、プロファイルA なら初回アクセス時にデコードした結果を、
+    ``frame.image.array`` は、プロファイルA なら初回アクセス時にデコードした結果を、
     プロファイルB なら共有メモリ上の生画素をそのまま返す。
-    ``if frame.is_encoded:`` のような分岐を書く必要はない。
+    ``if frame.image.is_encoded:`` のような分岐を書く必要はない。
     """
 
     def predict(self, sample: Sample) -> Detection3DOutput:
         front = sample.cameras["CAM_FRONT"]
 
-        image = front.image  # (H, W, 3) uint8 RGB。表現によらず同じ
-        height, width = front.height, front.width  # デコード不要で取得できる
+        image = front.image.array  # (H, W, 3) uint8 RGB。表現によらず同じ
+        height, width = front.image.height, front.image.width  # デコード不要で取得できる
 
         points = sample.lidar.points if sample.lidar else None
-        return self._infer(image, points, front.intrinsic, front.sensor_to_ego)
+        return self._infer(image, points, front.image.intrinsic, front.sensor_to_ego)
 
     def _infer(self, image, points, intrinsic, sensor_to_ego) -> Detection3DOutput:
         raise NotImplementedError

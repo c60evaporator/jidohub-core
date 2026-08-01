@@ -92,7 +92,6 @@ class TaskType(str, Enum):
 
     # --- Prediction系（単体タスク） -------------------------------------------
 
-
     # --- Planning系 ---------------------------------------------------------
     SENSING_TO_PLANNING = "sensing_to_planning"
     """センサ入力 → 走行軌跡（E2E）。出力は ``E2EOutput``。

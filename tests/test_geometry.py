@@ -6,8 +6,10 @@ import numpy as np
 import pytest
 
 from jidohub.core.geometry import (
+    crop_intrinsic,
     invert_transform,
     quaternion_to_yaw,
+    scale_intrinsic,
     transform_points,
     yaw_to_quaternion,
 )
@@ -64,3 +66,51 @@ def test_transform_points_handles_non_contiguous_input() -> None:
 def test_transform_points_rejects_too_few_columns() -> None:
     with pytest.raises(ValueError, match=r"points must have shape"):
         transform_points(np.zeros((4, 2)), make_transform())
+
+
+# --- 内部パラメータの crop / scale 追従（手計算で検証）----------------------
+
+
+def _intrinsic(fx: float, fy: float, cx: float, cy: float) -> np.ndarray:
+    return np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
+
+
+def test_crop_intrinsic_shifts_principal_point() -> None:
+    k = _intrinsic(1000.0, 1000.0, 800.0, 450.0)
+    cropped = crop_intrinsic(k, x0=100, y0=50)
+    # 主点だけが (x0, y0) 平行移動し、焦点距離は不変。
+    assert cropped[0, 2] == 700.0
+    assert cropped[1, 2] == 400.0
+    assert cropped[0, 0] == 1000.0
+    assert cropped[1, 1] == 1000.0
+
+
+def test_crop_intrinsic_does_not_mutate_input() -> None:
+    k = _intrinsic(1000.0, 1000.0, 800.0, 450.0)
+    original = k.copy()
+    crop_intrinsic(k, x0=100, y0=50)
+    assert np.array_equal(k, original)
+
+
+def test_scale_intrinsic_scales_focal_and_principal() -> None:
+    k = _intrinsic(1000.0, 800.0, 640.0, 360.0)
+    scaled = scale_intrinsic(k, scale_x=0.5, scale_y=2.0)
+    assert scaled[0, 0] == 500.0  # fx * 0.5
+    assert scaled[1, 1] == 1600.0  # fy * 2.0
+    assert scaled[0, 2] == 320.0  # cx * 0.5
+    assert scaled[1, 2] == 720.0  # cy * 2.0
+
+
+def test_scale_intrinsic_does_not_mutate_input() -> None:
+    k = _intrinsic(1000.0, 800.0, 640.0, 360.0)
+    original = k.copy()
+    scale_intrinsic(k, scale_x=0.5, scale_y=2.0)
+    assert np.array_equal(k, original)
+
+
+def test_crop_then_scale_differs_from_scale_then_crop() -> None:
+    # 順序が意味を持つ（主点の平行移動とスケールは非可換）ことを確認する。
+    k = _intrinsic(1000.0, 1000.0, 800.0, 450.0)
+    crop_then_scale = scale_intrinsic(crop_intrinsic(k, 100, 50), 0.5, 0.5)
+    scale_then_crop = crop_intrinsic(scale_intrinsic(k, 0.5, 0.5), 100, 50)
+    assert not np.array_equal(crop_then_scale, scale_then_crop)

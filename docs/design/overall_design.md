@@ -277,7 +277,7 @@ agent = AutoAgent.from_pretrained(
 ||JPEG転送（使い勝手重視）|生画素メモリ共有（速度重視）|
 |---|---|---|
 |転送方法|HTTP / gRPC（バイトストリーム）|共有メモリ（/dev/shm）|
-|転送時のデータ形式|JPEGバイト列（`EncodedImage`）|生画素（`pixels`）。将来的にはNV12も検討|
+|転送時のデータ形式|JPEGバイト列（`EncodedPixels`）|生画素（`pixels`）。将来的にはNV12も検討|
 |メリット|動作条件が緩い。Python API呼び出しとAgentが別マシンでも動く|高速|
 |ユースケース|viewerでの可視化、評価ジョブ、自動アノテーション、クロスホスト構成|実車のdockerデプロイ（画素がライブセンサから生で供給される）、同一ホストでの閉ループシミュレーション（デコードなしで画素が取得できるケース）|
 
@@ -314,7 +314,7 @@ JPEG転送、生画素メモリ共有双方の実装例を示します（**実�
 **JPEG転送の実装例**
 
 ```python
-from jidohub.core.schemas import CameraFrame, EncodedImage, ImageFormat, LidarSweep, Sample
+from jidohub.core.schemas import CameraFrame, EncodedPixels, Image, ImageFormat, LidarSweep, Sample
 
 def build_sample_encoded(record: Any) -> Sample:
     """データセットの JPEG をデコードせずに載せる"""
@@ -322,15 +322,17 @@ def build_sample_encoded(record: Any) -> Sample:
     for channel, meta in record.cameras.items():
         raw = Path(meta.path).read_bytes()
         cameras[channel] = CameraFrame(
-            intrinsic=meta.intrinsic,
+            image=Image(
+                encoded=EncodedPixels.from_bytes(
+                    raw,
+                    ImageFormat.JPEG,
+                    height=meta.height,
+                    width=meta.width,
+                ),
+                intrinsic=meta.intrinsic,
+            ),
             sensor_to_ego=meta.sensor_to_ego,
             channel=channel,
-            encoded=EncodedImage.from_bytes(
-                raw,
-                ImageFormat.JPEG,
-                height=meta.height,
-                width=meta.width,
-            ),
         )
     return Sample(
         timestamp=record.timestamp,
@@ -356,10 +358,12 @@ def build_sample_raw(frame_buffers: dict[str, np.ndarray], record: Any) -> Sampl
     """カメラ / ISP から得た生画素をそのまま載せる"""
     cameras = {
         channel: CameraFrame(
-            intrinsic=record.intrinsics[channel],
+            image=Image(
+                pixels=pixels,  # (H, W, 3) uint8 RGB
+                intrinsic=record.intrinsics[channel],
+            ),
             sensor_to_ego=record.extrinsics[channel],
             channel=channel,
-            pixels=pixels,  # (H, W, 3) uint8 RGB
         )
         for channel, pixels in frame_buffers.items()
     }

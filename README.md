@@ -58,39 +58,40 @@ restored = unpack(blob)  # 既定はゼロコピー = 読み取り専用ビュ�
 restored = unpack(blob, copy=True)  # 書き込みが必要な場合はコピー
 ```
 
-### カメラ画像（pixels / encoded）
+### 画像（Image）とカメラフレーム（CameraFrame）
 
-`CameraFrame` は画素を **生配列（`pixels`）か符号化バイト列（`encoded`）のどちらか一方**で
-保持する（排他）。利用側は表現を意識せず `frame.image` を使う（常に `(H, W, 3)` の uint8 RGB）。
+画像そのものは `Image` が表す。画素を **生配列（`pixels`）か符号化バイト列（`encoded`）の
+どちらか一方**で保持し（排他）、利用側は表現を意識せず `image.array` を使う
+（常に `(H, W, 3)` の uint8 RGB）。`CameraFrame` は「`Image` + カメラの取り付け情報
+（`sensor_to_ego`）」の合成で、`intrinsic` の唯一の正は `Image` 側にある。
 
 ```python
 import numpy as np
-from jidohub.core.schemas import CameraFrame, EncodedImage, ImageFormat
+from jidohub.core.schemas import CameraFrame, Image, EncodedPixels, ImageFormat
 
 # 生画素をそのまま持つ場合
-frame = CameraFrame(
-    intrinsic=np.eye(3),
-    sensor_to_ego=np.eye(4),
-    channel="CAM_FRONT",
+image = Image(
     pixels=np.zeros((900, 1600, 3), dtype=np.uint8),  # RGB 順
+    intrinsic=np.eye(3),
 )
 
 # プロセス境界（docker runner との RPC 等）を越える経路では encoded を推奨。
 # 生画素の約 1/15 のサイズで運べる。nuScenes 等は JPEG 保持なのでバイト列をそのまま載せる。
 jpeg_bytes = Path("...jpg").read_bytes()
-frame = CameraFrame(
+image = Image(
+    encoded=EncodedPixels.from_bytes(jpeg_bytes, ImageFormat.JPEG, height=900, width=1600),
     intrinsic=np.eye(3),
-    sensor_to_ego=np.eye(4),
-    channel="CAM_FRONT",
-    encoded=EncodedImage.from_bytes(jpeg_bytes, ImageFormat.JPEG, height=900, width=1600),
 )
 
-pixels = frame.image  # (H, W, 3) uint8 RGB。encoded の場合は初回アクセス時にデコードしキャッシュ
+frame = CameraFrame(image=image, sensor_to_ego=np.eye(4), channel="CAM_FRONT")
+
+pixels = frame.image.array  # 常に (H, W, 3) uint8 RGB（encoded は初回のみデコードしキャッシュ）
+cropped = image.cropped(100, 50, 700, 450)  # intrinsic と source を自動更新した Image
 ```
 
 `encoded` のデコードは core がコーデックに依存しないため、jidohub-datasets / jidohub-agents 側が
-`register_image_decoder()` で注入する（未登録で `frame.image` を呼ぶと `ImageDecodeError`）。
-画像サイズは `frame.height` / `frame.width` で**デコードせずに**取得できる。
+`register_image_decoder()` で注入する（未登録で `image.array` を呼ぶと `ImageDecodeError`）。
+画像サイズは `image.height` / `image.width` で**デコードせずに**取得できる。
 
 ### agent_config.json の読み込みと検証
 

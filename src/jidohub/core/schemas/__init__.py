@@ -9,10 +9,12 @@
 from __future__ import annotations
 
 from jidohub.core.schemas.image import (
-    EncodedImage,
+    EncodedPixels,
+    Image,
     ImageDecodeError,
     ImageDecoder,
     ImageFormat,
+    ImageSource,
     decode_image,
     get_image_decoder,
     register_image_decoder,
@@ -49,7 +51,9 @@ __all__ = [
     "EgoState",
     "DrivingCommand",
     # 画像
-    "EncodedImage",
+    "Image",
+    "ImageSource",
+    "EncodedPixels",
     "ImageFormat",
     "ImageDecoder",
     "ImageDecodeError",

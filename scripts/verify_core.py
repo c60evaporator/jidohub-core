@@ -196,23 +196,33 @@ def _check_type_registry_complete() -> str:
     return f"{len(targets)} 型を確認"
 
 
-@check("CameraFrame: pixels / encoded が排他")
+@check("Image: pixels / encoded が排他、CameraFrame は Image を保持")
 def _check_camera_frame_exclusive() -> str:
     import numpy as np
 
-    from jidohub.core.schemas import CameraFrame
+    from jidohub.core.schemas import CameraFrame, Image
 
-    common = dict(intrinsic=np.eye(3), sensor_to_ego=np.eye(4), channel="CAM_FRONT")
-    pixels = np.zeros((4, 4, 3), np.uint8)
-
+    # 排他は Image 側の責務（両方 None は不正）。
     try:
-        CameraFrame(**common)
-        raise AssertionError("両方 None が許容された")
+        Image(intrinsic=np.eye(3))
+        raise AssertionError("pixels / encoded が両方 None の Image が許容された")
     except ValueError:
         pass
 
-    frame = CameraFrame(**common, pixels=pixels)
-    assert frame.image.shape == (4, 4, 3) and not frame.is_encoded
+    pixels = np.zeros((4, 4, 3), np.uint8)
+    frame = CameraFrame(
+        image=Image(pixels=pixels, intrinsic=np.eye(3)),
+        sensor_to_ego=np.eye(4),
+        channel="CAM_FRONT",
+    )
+    assert frame.image.array.shape == (4, 4, 3) and not frame.image.is_encoded
+
+    # intrinsic の唯一の正は Image。intrinsic 未知の Image は CameraFrame に載せられない。
+    try:
+        CameraFrame(image=Image(pixels=pixels), sensor_to_ego=np.eye(4), channel="CAM_FRONT")
+        raise AssertionError("intrinsic なしの Image が CameraFrame に許容された")
+    except ValueError:
+        pass
     return "OK"
 
 
@@ -225,6 +235,7 @@ def _check_serialization_roundtrip() -> str:
         CameraFrame,
         Detection3DOutput,
         DrivingCommand,
+        Image,
         LidarSweep,
         Sample,
     )
@@ -235,10 +246,9 @@ def _check_serialization_roundtrip() -> str:
         ego_to_global=np.eye(4),
         cameras={
             "CAM_FRONT": CameraFrame(
-                intrinsic=np.eye(3),
+                image=Image(pixels=np.zeros((4, 4, 3), np.uint8), intrinsic=np.eye(3)),
                 sensor_to_ego=np.eye(4),
                 channel="CAM_FRONT",
-                pixels=np.zeros((4, 4, 3), np.uint8),
             )
         },
         lidar=LidarSweep(

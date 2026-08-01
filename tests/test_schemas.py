@@ -11,6 +11,7 @@ from jidohub.core.geometry import yaw_to_quaternion
 from jidohub.core.schemas import (
     Box3D,
     CameraFrame,
+    Image,
     LidarSweep,
     RadarSweep,
     Sample,
@@ -43,22 +44,24 @@ def test_sample_timestamp_accepts_numpy_integer() -> None:
     assert int(sample.timestamp) == 42
 
 
-def test_camera_frame_pixels_must_be_3d_rgb() -> None:
-    with pytest.raises(ValueError, match="CameraFrame.pixels must have shape"):
+def test_camera_frame_requires_image_intrinsic() -> None:
+    # intrinsic の唯一の正は Image。カメラフレームは intrinsic 未知の Image を拒否する。
+    with pytest.raises(ValueError, match="CameraFrame.image.intrinsic must not be None"):
         CameraFrame(
-            pixels=np.zeros((4, 6), dtype=np.uint8),  # 2 次元は不正
-            intrinsic=np.eye(3, dtype=np.float64),
+            image=Image(pixels=np.zeros((4, 6, 3), dtype=np.uint8)),  # intrinsic なし
             sensor_to_ego=make_transform(),
             channel="CAM_FRONT",
         )
 
 
-def test_camera_frame_intrinsic_wrong_shape() -> None:
-    with pytest.raises(ValueError, match="CameraFrame.intrinsic must have shape"):
+def test_camera_frame_sensor_to_ego_wrong_shape() -> None:
+    with pytest.raises(ValueError, match="CameraFrame.sensor_to_ego must have shape"):
         CameraFrame(
-            pixels=np.zeros((4, 6, 3), dtype=np.uint8),
-            intrinsic=np.eye(4, dtype=np.float64),
-            sensor_to_ego=make_transform(),
+            image=Image(
+                pixels=np.zeros((4, 6, 3), dtype=np.uint8),
+                intrinsic=np.eye(3, dtype=np.float64),
+            ),
+            sensor_to_ego=np.eye(3, dtype=np.float64),
             channel="CAM_FRONT",
         )
 
