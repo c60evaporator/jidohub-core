@@ -97,6 +97,8 @@ def test_mask_paste_back_into_full_canvas() -> None:
     instance = Instance2D(box=_box(), mask=mask, mask_region=(x0, y0, x1, y1))
 
     canvas = np.zeros((height, width), dtype=np.bool_)
+    assert instance.mask_region is not None
+    assert instance.mask is not None
     rx0, ry0, rx1, ry1 = instance.mask_region
     canvas[ry0:ry1, rx0:rx1] = instance.mask
 
