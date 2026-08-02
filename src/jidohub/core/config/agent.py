@@ -373,6 +373,14 @@ class AgentConfig(BaseModel):
                 f"sensors must be empty for image-input task {self.task.value!r} "
                 "(it takes an ImageSample, not sensor data)"
             )
+        # 入力種別に応じたプロンプト宣言の検証。
+        # Sample に prompt フィールドは無いため、センサ入力タスクでの宣言は実行時に何の意味も持たない（Webのフィルタで誤解を招く）
+        # COMPOSITE は複合入力型がテキストを含み得るため許容する（例: vision_language_action は Sample + テキストを取る）
+        if input_kind is InputKind.SENSOR and (self.prompt.required or self.prompt.supported):
+            raise ValueError(
+                f"prompt is not applicable to sensor-input task {self.task.value!r} "
+                "(Sample has no prompt field)"
+            )
 
         # 3. 中間出力は E2E タスクのみ
         if self.intermediate_outputs and self.task not in _TASKS_WITH_INTERMEDIATE_OUTPUTS:

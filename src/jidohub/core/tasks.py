@@ -206,7 +206,6 @@ TASK_INPUT_KINDS: dict["TaskType", InputKind] = {
     TaskType.MAP_CONSTRUCTION: InputKind.SENSOR,
     TaskType.OCCUPANCY_PREDICTION: InputKind.SENSOR,
     TaskType.SENSING_TO_PLANNING: InputKind.SENSOR,
-    TaskType.VISION_LANGUAGE_ACTION: InputKind.SENSOR,
     # IMAGE: ImageSample を入力に取る
     TaskType.OBJECT_DETECTION_2D: InputKind.IMAGE,
     TaskType.OBJECT_TRACKING_2D: InputKind.IMAGE,
@@ -218,7 +217,8 @@ TASK_INPUT_KINDS: dict["TaskType", InputKind] = {
     TaskType.DEPTH_ESTIMATION: InputKind.IMAGE,
     TaskType.MULTI_VIEW_RECONSTRUCTION: InputKind.IMAGE,
     TaskType.VIDEO_TEXT_TO_TEXT: InputKind.IMAGE,
-    # COMPOSITE: 上流タスクの出力を含む複合入力
+    # COMPOSITE: 複合入力（上流タスクの出力を含むケースが典型的）
+    TaskType.VISION_LANGUAGE_ACTION: InputKind.COMPOSITE,  # VLA は Sample + テキストを取るため COMPOSITE
     TaskType.MOTION_FORECASTING: InputKind.COMPOSITE,
     TaskType.TRACK_MAP_TO_PLANNING: InputKind.COMPOSITE,
     TaskType.CONTROL: InputKind.COMPOSITE,

@@ -369,3 +369,16 @@ Agent 作者は前者 2 つのみを実装し、オンライン推論とオフ�
 出力型は同じ（深度マップ）である。1 章の原則に従い、タスクは 1 つとし、
 `agent_config.json` で `metric_depth` を宣言させる。
 評価側は宣言を見て指標を選ぶ（7 章と同じ「1 タスク・複数プロトコル」の構造）。
+
+### 9.6 `InputKind` の予約タスク分類は暫定（実装時に見直す）
+
+`TASK_INPUT_KINDS` の予約タスク分類は、現時点では**検証ルール（センサ要求・プロンプト宣言）が
+正しく働くこと**を基準に決めており、入力 dataclass の厳密な対応ではない。
+
+- 2D tracking 系を `IMAGE` としているが、`streaming_agents.md` 4 章の入力型は
+  `Tracking2DInput`（`ImageSample` + 上流検出）であり意味論的には複合入力
+- `vision_language_action` は `Sample` + テキストを取るため `COMPOSITE` とする
+  （`Sample` に prompt フィールドが無く、`SENSOR` だとテキスト宣言が拒否されるため）
+
+ストリーミング契約と複合入力型を実装する段階で、`InputKind` を細分化するか、
+検証を入力種別とは別のフラグで駆動するかを判断する。
