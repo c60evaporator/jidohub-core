@@ -15,10 +15,11 @@ src/
         │   ├── __init__.py      再エクスポート
         │   ├── version.py       SCHEMA_VERSION / assert_compatible / is_compatible（互換判定の唯一の正）
         │   ├── image.py         画像: Image / EncodedPixels / ImageSource / デコーダ注入
-        │   ├── sample.py        入力: Sample / CameraFrame / LidarSweep /
+        │   ├── sample.py        入力(センサ): Sample / CameraFrame / LidarSweep /
         │   │                    RadarSweep / EgoState / DrivingCommand
-        │   └── outputs.py       出力: Box3D / Detection3DOutput / MapOutput /
-        │                        PlanningOutput / E2EOutput / AgentForecast など
+        │   ├── prompts.py       入力(2D): ImageSample / ImagePrompt
+        │   └── outputs.py       出力: Box3D / Detection3DOutput / Box2D / Instance2D /
+        │                        Detection2DOutput / Classification2DOutput / E2EOutput など
         ├── config/              agent_config.json のパース・検証（Pydantic）
         ├── serialization/       Sample / Output の直列化・復元（pack / unpack）
         └── hub/                 Hub クライアント（snapshot / revision 解決 / チェックサム検証）

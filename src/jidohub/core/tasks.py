@@ -15,7 +15,13 @@ from __future__ import annotations
 import re
 from enum import Enum
 
-__all__ = ["TaskType", "IntermediateOutput", "Platform"]
+__all__ = [
+    "TaskType",
+    "InputKind",
+    "TASK_INPUT_KINDS",
+    "IntermediateOutput",
+    "Platform",
+]
 
 # タスク値は snake_case のみ許可（先頭は英小文字、以降は英小文字・数字・アンダースコア）。
 # ハイフン（kebab-case）を弾くための唯一のパターン定義。
@@ -51,8 +57,9 @@ class TaskType(str, Enum):
     """
 
     OBJECT_TRACKING_3D = "object_tracking_3d"
-    """
-    複数フレームのセンサ or Detection3DOutputを入力 → 3D 物体追跡。出力は ``Tracking3DOutput``（``track_id`` 付き）。
+    """複数フレームのセンサ入力 → 3D 物体追跡。出力は ``Tracking3DOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
 
     例: AB3DMOT, CenterPoint Tracking
     """
@@ -70,27 +77,81 @@ class TaskType(str, Enum):
     """
 
     OBJECT_TRACKING_2D = "object_tracking_2d"
-    """
-    複数フレームの画像 or Detection2DOutputを入力 → 2D 物体追跡。出力は ``Tracking2DOutput``（``track_id`` 付き）。
+    """複数フレームの画像入力 → 2D 物体追跡。出力は ``Tracking2DOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
 
     例: SORT, DeepSORT
     """
 
     INSTANCE_SEGMENTATION_2D = "instance_segmentation_2d"
-    """
-    画像入力 → インスタンスマスク。出力は ``InstanceSegmentation2DOutput``。
+    """画像入力 → インスタンスマスク。出力は ``InstanceSegmentation2DOutput``。
 
     例: Mask2Former, SAM
     """
 
-    INSTANCE_SEGMENTATION_2D_TRACKING = "instance_segmentation_2d_tracking"
-    """
-    複数フレーム画像入力 → インスタンスマスク追跡。出力は ``InstanceSegmentation2DTrackingOutput``（``track_id`` 付き）。
+    INSTANCE_SEGMENTATION_TRACKING_2D = "instance_segmentation_tracking_2d"
+    """複数フレーム画像入力 → インスタンスマスク追跡。
+    出力は ``InstanceSegmentation2DTrackingOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。サフィックス ``_2d`` は必ず末尾に置く
+    （``instance_segmentation_2d_tracking`` は規約違反。`2d_tasks.md` 2 章）。
 
     例: SAM2, SAM3
     """
 
-    # --- Prediction系（単体タスク） -------------------------------------------
+    SEMANTIC_SEGMENTATION_2D = "semantic_segmentation_2d"
+    """画像入力 → セマンティックセグメンテーション。出力は ``SemanticSegmentation2DOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
+    """
+
+    PANOPTIC_SEGMENTATION_2D = "panoptic_segmentation_2d"
+    """画像入力 → パノプティックセグメンテーション。出力は ``PanopticSegmentation2DOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
+    """
+
+    IMAGE_CLASSIFICATION_2D = "image_classification_2d"
+    """画像入力 → 画像分類。出力は ``Classification2DOutput``。
+
+    例: SigLIP2（ゼロショット）, ResNet, ViT
+    """
+
+    DEPTH_ESTIMATION = "depth_estimation"
+    """画像入力 → 深度マップ。出力は ``DepthOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。相対 / 絶対は
+    ``agent_config.json`` の宣言で区別する（`2d_tasks.md` 9.5）。
+    次元サフィックスは付けない（画像平面にも 3D 空間にも一意に属さないため。2 章）。
+    """
+
+    MULTI_VIEW_RECONSTRUCTION = "multi_view_reconstruction"
+    """複数視点画像 → 3D 再構成。出力は ``ReconstructionOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
+
+    例: VGGT, DUSt3R
+    """
+
+    VIDEO_TEXT_TO_TEXT = "video_text_to_text"
+    """映像 + テキスト → テキスト。出力は ``TextOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
+    """
+
+    # --- Prediction系 -------------------------------------------------------
+    MOTION_FORECASTING = "motion_forecasting"
+    """追跡結果 + マップ → 他車・歩行者の動作予測。出力は ``MotionForecastOutput``。
+
+    次元サフィックスは付けない（`2d_tasks.md` 2 章）。
+    """
+
+    OCCUPANCY_PREDICTION = "occupancy_prediction"
+    """センサ入力 → 占有グリッド予測。出力は ``OccupancyOutput``（予約）。
+
+    出力スキーマ未定義。enum の値のみ予約する。
+    """
 
     # --- Planning系 ---------------------------------------------------------
     SENSING_TO_PLANNING = "sensing_to_planning"
@@ -102,20 +163,66 @@ class TaskType(str, Enum):
     """
 
     VISION_LANGUAGE_ACTION = "vision_language_action"
-    """センサ入力 → 走行軌跡 + 自然言語（VLA）。出力は ``VLAOutput``（将来定義）。
+    """センサ入力 → 走行軌跡 + 自然言語（VLA）。出力は ``VLAOutput``（予約）。
 
-    Phase 1 では出力スキーマ未定義。enum の値のみ予約する。
+    出力スキーマ未定義。enum の値のみ予約する。
     """
 
     TRACK_MAP_TO_PLANNING = "track_map_to_planning"
     """追跡結果 + マップ → 走行軌跡（プランナ単体）。出力は ``PlanningOutput``。"""
 
     # --- Control系 ---------------------------------------------------------
-    PLANNING_TO_CONTROL = "planning_to_control"
-    """走行軌跡 → 制御指令（コントローラ単体）。出力は ``ControlOutput``（将来定義）。
+    CONTROL = "control"
+    """走行軌跡 → 制御指令（コントローラ単体）。出力は ``ControlOutput``（予約）。
 
-    Phase 1 では出力スキーマ未定義。enum の値のみ予約する。
+    出力スキーマ未定義。enum の値のみ予約する。
     """
+
+
+class InputKind(str, Enum):
+    """タスクが入力に取るコンテナの種別。
+
+    2D タスクは :class:`~jidohub.core.schemas.Sample`（センサ入力）ではなく
+    :class:`~jidohub.core.schemas.ImageSample`（画像入力）を取るため、config の
+    センサ要求検証（:mod:`jidohub.core.config.agent`）が入力種別ごとに規則を分ける。
+    """
+
+    SENSOR = "sensor"
+    """:class:`~jidohub.core.schemas.Sample` を入力に取る（センサ 1 つ以上が必要）。"""
+
+    IMAGE = "image"
+    """:class:`~jidohub.core.schemas.ImageSample` を入力に取る（センサを宣言しない）。"""
+
+    COMPOSITE = "composite"
+    """上流タスクの出力を含む複合入力（``track_map_to_planning`` 等）。"""
+
+
+# タスク → 入力種別の対応表。TaskType と**同じファイル**に置き、語彙の唯一の正を分散させない。
+# 予約タスク（出力型未定義）の分類は暫定であり、実装時に見直す余地がある。
+TASK_INPUT_KINDS: dict["TaskType", InputKind] = {
+    # SENSOR: Sample を入力に取る
+    TaskType.OBJECT_DETECTION_3D: InputKind.SENSOR,
+    TaskType.OBJECT_TRACKING_3D: InputKind.SENSOR,
+    TaskType.MAP_CONSTRUCTION: InputKind.SENSOR,
+    TaskType.OCCUPANCY_PREDICTION: InputKind.SENSOR,
+    TaskType.SENSING_TO_PLANNING: InputKind.SENSOR,
+    TaskType.VISION_LANGUAGE_ACTION: InputKind.SENSOR,
+    # IMAGE: ImageSample を入力に取る
+    TaskType.OBJECT_DETECTION_2D: InputKind.IMAGE,
+    TaskType.OBJECT_TRACKING_2D: InputKind.IMAGE,
+    TaskType.INSTANCE_SEGMENTATION_2D: InputKind.IMAGE,
+    TaskType.INSTANCE_SEGMENTATION_TRACKING_2D: InputKind.IMAGE,
+    TaskType.SEMANTIC_SEGMENTATION_2D: InputKind.IMAGE,
+    TaskType.PANOPTIC_SEGMENTATION_2D: InputKind.IMAGE,
+    TaskType.IMAGE_CLASSIFICATION_2D: InputKind.IMAGE,
+    TaskType.DEPTH_ESTIMATION: InputKind.IMAGE,
+    TaskType.MULTI_VIEW_RECONSTRUCTION: InputKind.IMAGE,
+    TaskType.VIDEO_TEXT_TO_TEXT: InputKind.IMAGE,
+    # COMPOSITE: 上流タスクの出力を含む複合入力
+    TaskType.MOTION_FORECASTING: InputKind.COMPOSITE,
+    TaskType.TRACK_MAP_TO_PLANNING: InputKind.COMPOSITE,
+    TaskType.CONTROL: InputKind.COMPOSITE,
+}
 
 
 class IntermediateOutput(str, Enum):

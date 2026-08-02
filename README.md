@@ -93,6 +93,31 @@ cropped = image.cropped(100, 50, 700, 450)  # intrinsic と source を自動更�
 `register_image_decoder()` で注入する（未登録で `image.array` を呼ぶと `ImageDecodeError`）。
 画像サイズは `image.height` / `image.width` で**デコードせずに**取得できる。
 
+### 2D タスク（ImageSample と出力型）
+
+`object_detection_2d` などの 2D タスクは、センサ入力（`Sample`）ではなく画像 1 枚 +
+オプションのプロンプトを表す `ImageSample` を入力に取る。座標はすべて入力 `Image` の
+現サイズ基準（左上原点）。
+
+```python
+import numpy as np
+from jidohub.core.schemas import Image, ImageSample, ImagePrompt, Box2D, Detection2DOutput
+
+image = Image(pixels=np.zeros((900, 1600, 3), dtype=np.uint8), intrinsic=np.eye(3))
+
+# プロンプト（点 / ボックス / テキスト）は指定した項目のみ有効。texts は
+# 分類のラベル候補と検出のテキストプロンプトで共用する。
+sample = ImageSample(image=image, prompt=ImagePrompt(texts=["car", "pedestrian"]))
+
+# 出力（例: 2D 物体検出）。xyxy は (x0, y0, x1, y1)。label は文字列（ゼロショット対応）。
+output = Detection2DOutput(
+    boxes=[Box2D(xyxy=np.array([10.0, 20.0, 120.0, 200.0]), label="car", score=0.92)]
+)
+```
+
+Agent が受け付けるプロンプト種別は `agent_config.json` の `prompt` で宣言する
+（`{"required": true, "supported": ["point", "box", "text"]}`）。
+
 ### agent_config.json の読み込みと検証
 
 ```python
@@ -121,7 +146,7 @@ client.verify_weights(config, path)  # sha256 でチェックサム検証
 
 ## スキーマバージョン
 
-`schema_version` は現在 **`"0.1"`（破壊的変更を許容する期間）**。
+`schema_version` は現在 **`"0.2"`（破壊的変更を許容する期間）**。
 CenterPoint（Detection）と UniAD（E2E）の入出力を実際に押し込んで歪みがないことを
 確認するまで `"1.0"` にしない。0.x の間は minor 差も非互換として扱う。
 

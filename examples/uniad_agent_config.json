@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "agent_id": "acme/UniAD-tiny-nuScenes",
   "task": "sensing_to_planning",
   "sensors": {

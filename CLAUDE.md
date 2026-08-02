@@ -57,6 +57,15 @@ src/
   スキーマのメソッド（`points_in_ego` 等）はここの関数を呼ぶ薄いラッパに留める。
 - **`tasks.py`**: enum の値は追加のみ可。既存の値の文字列を変更すると
   既存の `agent_config.json` が全て壊れるため、破壊的変更として扱う。
+  - **命名規約**（`TaskType` の値。詳細は `docs/design/tasks/2d_tasks.md` 2 章）:
+    - snake_case で `<動作>_<次元>` の形（`object_detection_2d`, `map_construction`）。
+    - **次元サフィックス（`_2d` / `_3d`）は必ず末尾**。画像平面に閉じるタスクに `_2d`、
+      3D 空間座標を扱うタスクに `_3d`。どちらにも一意に属さない
+      （`depth_estimation`, `map_construction`, `motion_forecasting` 等）には付けない。
+      例: `instance_segmentation_2d_tracking` は誤り、`instance_segmentation_tracking_2d` が正。
+    - 値の変更は破壊的。ハイフン（kebab-case）は import 時に `ValueError` で弾かれる。
+  - タスク → 入力種別（`InputKind`）の対応表 `TASK_INPUT_KINDS` も**同ファイル**に置く
+    （語彙の唯一の正を分散させない）。新タスク追加時は入力種別も必ず宣言する。
 - **`config/` と `schemas/` の分離**: config は Pydantic、schemas は dataclass（4 章）。
   この境界を越えて型を混在させない。
 - **テスト**: `tests/` に置き、`src/` にテスト用コードを混入させない。

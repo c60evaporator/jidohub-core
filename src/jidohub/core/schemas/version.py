@@ -22,7 +22,7 @@ __all__ = ["SCHEMA_VERSION", "assert_compatible", "is_compatible"]
 
 _VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)$")
 
-SCHEMA_VERSION = "0.1"
+SCHEMA_VERSION = "0.2"
 """現在のスキーマバージョン（major.minor）。
 
 - **major** の変更 = 後方互換のない変更。読み込み側はエラーにする。

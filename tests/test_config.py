@@ -23,7 +23,7 @@ SHA = "0" * 64
 
 def native_config() -> dict[str, Any]:
     return {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "agent_id": "jidohub/CenterPoint",
         "task": "object_detection_3d",
         "sensors": {"lidar": ["LIDAR_TOP"]},
@@ -36,7 +36,7 @@ def native_config() -> dict[str, Any]:
 
 def remote_config() -> dict[str, Any]:
     return {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "agent_id": "acme/UniAD",
         "task": "sensing_to_planning",
         "sensors": {"cameras": ["CAM_FRONT"], "requires_ego_state": True},
@@ -47,6 +47,20 @@ def remote_config() -> dict[str, Any]:
         "runtime": {"isolation": "required", "dockerfile": "runtime/Dockerfile"},
         "weights": [{"path": "weights/model.safetensors", "format": "safetensors", "sha256": SHA}],
         "intermediate_outputs": ["detection", "tracking"],
+        "license": "Apache-2.0",
+    }
+
+
+def image_config() -> dict[str, Any]:
+    """2D（画像入力）タスクの config。センサを宣言しない。"""
+    return {
+        "schema_version": "0.2",
+        "agent_id": "acme/YOLO",
+        "task": "object_detection_2d",
+        "implementation": {"type": "native", "native_class": "YOLOAgent"},
+        "runtime": {"isolation": "not-required", "gpu_required": True},
+        "weights": [{"path": "weights/model.safetensors", "format": "safetensors", "sha256": SHA}],
+        "prompt": {"required": False, "supported": ["text"]},
         "license": "Apache-2.0",
     }
 
@@ -76,7 +90,7 @@ def test_valid_remote_config_parses() -> None:
 def test_example_files_load() -> None:
     for name in ("centerpoint_agent_config.json", "uniad_agent_config.json"):
         config = load_agent_config(EXAMPLES_DIR / name)
-        assert config.schema_version == "0.1"
+        assert config.schema_version == "0.2"
 
 
 # --- 異常系 -----------------------------------------------------------------
@@ -180,12 +194,48 @@ def test_remote_code_requires_auto_agent() -> None:
 
 
 def test_no_sensors_rejected() -> None:
+    # object_detection_3d は SENSOR 入力なのでセンサ空は拒否。
     data = mutate(native_config(), sensors={})
     with pytest.raises(ConfigValidationError, match="at least one sensor"):
         parse_agent_config(data)
 
 
-@pytest.mark.parametrize("version", ["0.2", "1.0"])
+# --- 2D（画像入力）タスクのセンサ / プロンプト規則 --------------------------
+
+
+def test_image_task_config_parses_without_sensors() -> None:
+    config = parse_agent_config(image_config())
+    assert config.task.value == "object_detection_2d"
+    assert config.sensors.is_empty()
+    assert config.prompt.supported == ["text"]
+
+
+def test_image_task_forbids_sensors() -> None:
+    # object_detection_2d は IMAGE 入力。センサを宣言したら拒否。
+    data = mutate(image_config(), sensors={"cameras": ["CAM_FRONT"]})
+    with pytest.raises(ConfigValidationError, match="sensors must be empty"):
+        parse_agent_config(data)
+
+
+def test_prompt_required_needs_supported() -> None:
+    data = mutate(image_config(), prompt={"required": True, "supported": []})
+    with pytest.raises(ConfigValidationError, match="supported must be non-empty"):
+        parse_agent_config(data)
+
+
+def test_prompt_supported_no_duplicates() -> None:
+    data = mutate(image_config(), prompt={"required": True, "supported": ["text", "text"]})
+    with pytest.raises(ConfigValidationError, match="must not contain duplicates"):
+        parse_agent_config(data)
+
+
+def test_prompt_supported_unknown_value_rejected() -> None:
+    data = mutate(image_config(), prompt={"required": True, "supported": ["mask"]})
+    with pytest.raises(ConfigValidationError):
+        parse_agent_config(data)
+
+
+@pytest.mark.parametrize("version", ["0.1", "1.0"])
 def test_incompatible_schema_version(version: str) -> None:
     data = mutate(native_config(), schema_version=version)
     with pytest.raises(ConfigValidationError, match="incompatible"):

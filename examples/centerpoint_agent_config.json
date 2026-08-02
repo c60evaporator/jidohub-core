@@ -1,5 +1,5 @@
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "agent_id": "jidohub/CenterPoint-Pillar-nuScenes",
   "task": "object_detection_3d",
   "sensors": {

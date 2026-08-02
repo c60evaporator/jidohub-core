@@ -21,15 +21,24 @@ from jidohub.core.schemas.image import (
 )
 from jidohub.core.schemas.outputs import (
     AgentForecast,
+    Box2D,
     Box3D,
+    Classification2DOutput,
     CoordinateFrame,
+    Detection2DOutput,
     Detection3DOutput,
     E2EOutput,
+    Instance2D,
+    InstanceSegmentation2DOutput,
     MapElement,
     MapElementType,
     MapOutput,
     MotionForecastOutput,
     PlanningOutput,
+)
+from jidohub.core.schemas.prompts import (
+    ImagePrompt,
+    ImageSample,
 )
 from jidohub.core.schemas.sample import (
     CameraFrame,
@@ -43,13 +52,16 @@ from jidohub.core.schemas.version import SCHEMA_VERSION
 
 __all__ = [
     "SCHEMA_VERSION",
-    # 入力
+    # 入力（センサ）
     "Sample",
     "CameraFrame",
     "LidarSweep",
     "RadarSweep",
     "EgoState",
     "DrivingCommand",
+    # 入力（2D / 画像）
+    "ImageSample",
+    "ImagePrompt",
     # 画像
     "Image",
     "ImageSource",
@@ -60,7 +72,7 @@ __all__ = [
     "register_image_decoder",
     "get_image_decoder",
     "decode_image",
-    # 出力
+    # 出力（3D / E2E）
     "CoordinateFrame",
     "Box3D",
     "Detection3DOutput",
@@ -71,4 +83,10 @@ __all__ = [
     "MotionForecastOutput",
     "PlanningOutput",
     "E2EOutput",
+    # 出力（2D）
+    "Box2D",
+    "Instance2D",
+    "Detection2DOutput",
+    "InstanceSegmentation2DOutput",
+    "Classification2DOutput",
 ]

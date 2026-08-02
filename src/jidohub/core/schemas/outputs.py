@@ -28,6 +28,11 @@ __all__ = [
     "CoordinateFrame",
     "Box3D",
     "Detection3DOutput",
+    "Box2D",
+    "Instance2D",
+    "Detection2DOutput",
+    "InstanceSegmentation2DOutput",
+    "Classification2DOutput",
     "MapElementType",
     "MapElement",
     "MapOutput",
@@ -49,6 +54,12 @@ class CoordinateFrame(str, Enum):
 
     GLOBAL = "global"
     """global（マップ）座標系。"""
+
+    CAMERA = "camera"
+    """カメラ座標系。単眼深度（``depth_estimation`` の ``DepthOutput``、将来定義）の
+    出力は ego 座標に置けない（外部パラメータが必要で、それを持つのは ``CameraFrame`` を
+    握っている呼び出し側）ため予約する。後から追加すると ``schema_version`` を上げる
+    変更になるため、`2d_tasks.md` 6.4 に従い今のうちに値だけ用意する。"""
 
 
 @dataclass
@@ -152,10 +163,131 @@ class Detection3DOutput:
     frame: CoordinateFrame = CoordinateFrame.EGO
 
 
+@dataclass
+class Box2D:
+    """2D バウンディングボックス 1 個（画像平面）。
+
+    検出・追跡・インスタンス分割で共通して使う。
+
+    Attributes:
+        xyxy: shape ``(4,)``、``np.float64``。``(x0, y0, x1, y1)``[px]。原点は左上、
+            ``x`` 右・``y`` 下（`2d_tasks.md` 3.2）。フィールド名を ``xyxy`` にすることで
+            xywh との取り違えをコード上で防ぐ（``Box3D.size`` の並び順と同じ発想）。
+            COCO 形式（xywh）への変換は評価層の責務であり core では扱わない。
+        label: クラス名の**文字列**。ゼロショット分類・オープン語彙検出では
+            ラベル集合が実行時に決まるためクラスインデックスにできない
+            （`2d_tasks.md` 1 章）。プロンプタブル系では ``None`` になり得る。
+        score: 信頼度スコア ``[0, 1]``。GT や単純なプロンプト応答では ``None``。
+        track_id: 追跡 ID。単発検出では ``None``。``object_tracking_2d`` 追加時に
+            フィールドを足すと破壊的変更になるため、**最初から**用意する（`2d_tasks.md` 9.1）。
+        attributes: データセット固有の属性。
+    """
+
+    xyxy: np.ndarray
+    label: str | None = None
+    score: float | None = None
+    track_id: int | None = None
+    attributes: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.xyxy.shape != (4,):
+            raise ValueError(f"Box2D.xyxy must have shape (4,), got {self.xyxy.shape}")
+
+
+@dataclass
+class Instance2D:
+    """インスタンスセグメンテーションの 1 インスタンス。
+
+    マスクは**全画面ではなく bbox 内に限定**して持つ。素朴な ``(N, H, W)`` の全画面
+    マスクは 1600x900 で 50 インスタンスなら約 72MB になり、プロセス境界を越える設計では
+    実用にならないため（`2d_tasks.md` 6.2）。
+
+    Attributes:
+        box: このインスタンスのバウンディングボックス。
+        mask: shape ``(h, w)``、``np.bool_``。``mask_region`` が示す整数画素領域を覆う。
+        mask_region: ``(x0, y0, x1, y1)`` の**整数**画素領域。``x1 - x0 == w``、
+            ``y1 - y0 == h`` を満たす。``box.xyxy``（float）とは別に整数領域を持つのは、
+            float から暗黙に丸めると実装ごとに 1 画素ずれるため（曖昧さの排除）。
+    """
+
+    box: Box2D
+    mask: np.ndarray | None = None
+    mask_region: tuple[int, int, int, int] | None = None
+
+    def __post_init__(self) -> None:
+        if (self.mask is None) != (self.mask_region is None):
+            raise ValueError("Instance2D.mask and mask_region must be provided together")
+        if self.mask is not None:
+            if self.mask.ndim != 2 or self.mask.dtype != np.bool_:
+                raise ValueError(
+                    "Instance2D.mask must be a 2-D bool array, "
+                    f"got shape={self.mask.shape} dtype={self.mask.dtype}"
+                )
+            assert self.mask_region is not None  # 上の同時指定チェックで保証済み
+            x0, y0, x1, y1 = self.mask_region
+            height, width = self.mask.shape
+            if (x1 - x0, y1 - y0) != (width, height):
+                raise ValueError(
+                    "Instance2D.mask_region size must match mask shape "
+                    f"(expected x1-x0={width}, y1-y0={height}; got {(x1 - x0, y1 - y0)})"
+                )
+
+
+@dataclass
+class Detection2DOutput:
+    """2D 物体検出の出力（``object_detection_2d``）。
+
+    座標は**入力 :class:`~jidohub.core.schemas.Image` の現サイズ基準**（`2d_tasks.md` 3.2）。
+    3D 出力と異なり座標系の選択の余地がない（画像平面に一意）ため
+    :class:`CoordinateFrame` フィールドは持たない。元画像へ戻す必要がある場合は
+    :attr:`~jidohub.core.schemas.image.Image.source` を用いる。
+
+    Attributes:
+        boxes: 検出されたボックスのリスト。スコア降順である必要はない。
+    """
+
+    boxes: list[Box2D] = field(default_factory=list)
+
+
+@dataclass
+class InstanceSegmentation2DOutput:
+    """インスタンスセグメンテーションの出力（``instance_segmentation_2d``）。
+
+    座標系の扱いは :class:`Detection2DOutput` と同じ（現サイズ基準・``frame`` なし）。
+
+    Attributes:
+        instances: 検出されたインスタンスのリスト。
+    """
+
+    instances: list[Instance2D] = field(default_factory=list)
+
+
+@dataclass
+class Classification2DOutput:
+    """画像分類の出力（``image_classification_2d``）。
+
+    Attributes:
+        labels: クラス名の**文字列**リスト。スコア降順。ゼロショット分類では
+            ラベル集合が実行時に決まるため文字列で持つ（`2d_tasks.md` 1 章）。
+        scores: shape ``(K,)``、``np.float64``。``labels`` と同順・同数。
+            モデルがスコアを出さない場合は ``None``。
+    """
+
+    labels: list[str] = field(default_factory=list)
+    scores: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if self.scores is not None and self.scores.shape[0] != len(self.labels):
+            raise ValueError(
+                "Classification2DOutput.scores length must match labels "
+                f"({self.scores.shape[0]} != {len(self.labels)})"
+            )
+
+
 class MapElementType(str, Enum):
     """HD マップ要素の種別。
 
-    オンラインマップ構築（``sensing_to_map``）の出力と、
+    オンラインマップ構築（``map_construction``）の出力と、
     nuScenes Map Expansion の GT の双方で使う共通語彙。
     """
 
@@ -196,7 +328,7 @@ class MapElement:
 
 @dataclass
 class MapOutput:
-    """オンライン HD マップ構築の出力（``sensing_to_map``）。
+    """オンライン HD マップ構築の出力（``map_construction``）。
 
     Attributes:
         elements: マップ要素のリスト。

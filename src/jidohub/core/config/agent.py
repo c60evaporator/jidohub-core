@@ -27,11 +27,18 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jidohub.core.schemas.version import assert_compatible
-from jidohub.core.tasks import IntermediateOutput, Platform, TaskType
+from jidohub.core.tasks import (
+    TASK_INPUT_KINDS,
+    InputKind,
+    IntermediateOutput,
+    Platform,
+    TaskType,
+)
 
 __all__ = [
     "AgentConfig",
     "SensorRequirement",
+    "PromptRequirement",
     "Implementation",
     "WeightsSpec",
     "RuntimeSpec",
@@ -94,10 +101,39 @@ class SensorRequirement(BaseModel):
     history_length: int = 0
     """必要な過去フレーム数。``Sample.history`` の最小長。0 なら単一フレームで動作する。"""
 
+    def is_empty(self) -> bool:
+        """センサチャンネルを 1 つも宣言していないか。
+
+        センサ 1 つ以上の要否はタスクの入力種別（:class:`~jidohub.core.tasks.InputKind`）に
+        依存するため、この判定は :class:`SensorRequirement` 単体では行わず
+        :class:`AgentConfig` の相互検証で行う。
+        """
+        return not (self.cameras or self.lidar or self.radars)
+
+
+class PromptRequirement(BaseModel):
+    """2D タスクが受け付けるプロンプトの宣言。
+
+    入力（``ImageSample.prompt``）をオプションにすると「この Agent はプロンプトが
+    必要か / 何を受け付けるか」が型から読めなくなる。``sensors`` と同じ形で宣言させ、
+    jidohub-web の検索フィルタ（「テキストプロンプト対応の検出器」）と実行前検証に使う
+    （`2d_tasks.md` 5 章）。宣言がないと、実行して初めて失敗するか、黙って空の結果を返す。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    required: bool = False
+    """プロンプトが必須か。``True`` なら ``supported`` が空であってはならない。"""
+
+    supported: list[Literal["point", "box", "text"]] = Field(default_factory=list)
+    """受け付けるプロンプト種別。``ImageSample.prompt`` の各項目に対応する。"""
+
     @model_validator(mode="after")
-    def _require_any_sensor(self) -> "SensorRequirement":
-        if not (self.cameras or self.lidar or self.radars):
-            raise ValueError("at least one sensor (cameras / lidar / radars) is required")
+    def _check_consistency(self) -> "PromptRequirement":
+        if len(set(self.supported)) != len(self.supported):
+            raise ValueError("prompt.supported must not contain duplicates")
+        if self.required and not self.supported:
+            raise ValueError("prompt.supported must be non-empty when prompt.required is true")
         return self
 
 
@@ -263,8 +299,16 @@ class AgentConfig(BaseModel):
     task: TaskType
     """タスク種別。入出力の契約はこの値から一意に決まる。"""
 
-    sensors: SensorRequirement
-    """要求するセンサ構成。"""
+    sensors: SensorRequirement = Field(default_factory=SensorRequirement)
+    """要求するセンサ構成。
+
+    センサ入力タスク（:attr:`~jidohub.core.tasks.InputKind.SENSOR`）では 1 つ以上を要求し、
+    画像入力タスク（:attr:`~jidohub.core.tasks.InputKind.IMAGE`）では空でなければならない。
+    2D タスクは ``ImageSample`` を入力に取りセンサを使わないため、既定を空にして省略可能とする。
+    """
+
+    prompt: PromptRequirement = Field(default_factory=PromptRequirement)
+    """受け付けるプロンプトの宣言（主に 2D タスク）。既定はプロンプトなし。"""
 
     implementation: Implementation
     """実装コードの在り処。"""
@@ -315,7 +359,22 @@ class AgentConfig(BaseModel):
         # 1. スキーマ互換性
         _assert_schema_compatible(self.schema_version)
 
-        # 2. 中間出力は E2E タスクのみ
+        # 2. 入力種別に応じたセンサ要求の検証。
+        #    センサの要否はタスクの入力種別に依存するため、SensorRequirement 単体ではなく
+        #    ここで判定する（2D タスクは ImageSample 入力でセンサを持たない）。
+        input_kind = TASK_INPUT_KINDS[self.task]
+        if input_kind is InputKind.SENSOR and self.sensors.is_empty():
+            raise ValueError(
+                f"at least one sensor (cameras / lidar / radars) is required "
+                f"for sensor-input task {self.task.value!r}"
+            )
+        if input_kind is InputKind.IMAGE and not self.sensors.is_empty():
+            raise ValueError(
+                f"sensors must be empty for image-input task {self.task.value!r} "
+                "(it takes an ImageSample, not sensor data)"
+            )
+
+        # 3. 中間出力は E2E タスクのみ
         if self.intermediate_outputs and self.task not in _TASKS_WITH_INTERMEDIATE_OUTPUTS:
             raise ValueError(
                 f"intermediate_outputs is only allowed for "
@@ -325,7 +384,7 @@ class AgentConfig(BaseModel):
         if len(set(self.intermediate_outputs)) != len(self.intermediate_outputs):
             raise ValueError("intermediate_outputs must not contain duplicates")
 
-        # 3. セキュリティ不変条件: 未審査コードは必ず隔離実行
+        # 4. セキュリティ不変条件: 未審査コードは必ず隔離実行
         if self.implementation.type == "remote_code" and self.runtime.isolation != "required":
             raise ValueError(
                 "runtime.isolation must be 'required' when implementation.type is 'remote_code' "

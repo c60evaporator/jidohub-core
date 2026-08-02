@@ -94,6 +94,83 @@ def test_e2e_output_roundtrip_all_intermediates() -> None:
     assert restored.motion_forecast.forecasts[0].trajectories.dtype == np.float32
 
 
+# --- 2D タスクの round-trip -------------------------------------------------
+
+
+def _image_2d() -> "schemas.Image":
+    return schemas.Image(pixels=np.zeros((4, 6, 3), dtype=np.uint8), intrinsic=np.eye(3))
+
+
+def test_image_sample_roundtrip_with_prompt() -> None:
+    sample = schemas.ImageSample(
+        image=_image_2d(),
+        prompt=schemas.ImagePrompt(
+            points=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64),
+            point_labels=np.array([1, 0], dtype=np.int64),
+            boxes=np.array([[0.0, 0.0, 2.0, 2.0]], dtype=np.float64),
+            texts=["car", "person"],
+        ),
+        sample_id="img-0",
+    )
+    restored = unpack(pack(sample))
+    assert isinstance(restored, schemas.ImageSample)
+    assert restored.sample_id == "img-0"
+    # texts は list[str] のまま（tuple 化しない）。
+    assert restored.prompt.texts == ["car", "person"]
+    assert isinstance(restored.prompt.texts, list)
+    assert np.array_equal(restored.prompt.point_labels, sample.prompt.point_labels)
+
+
+def test_image_sample_roundtrip_without_prompt() -> None:
+    restored = unpack(pack(schemas.ImageSample(image=_image_2d())))
+    assert isinstance(restored, schemas.ImageSample)
+    assert restored.prompt is None
+
+
+def test_detection_2d_roundtrip() -> None:
+    output = schemas.Detection2DOutput(
+        boxes=[
+            schemas.Box2D(xyxy=np.array([1.0, 2.0, 5.0, 6.0]), label="car", score=0.9, track_id=3),
+            schemas.Box2D(xyxy=np.array([0.0, 0.0, 1.0, 1.0])),  # プロンプタブル: label None
+        ]
+    )
+    restored = unpack(pack(output))
+    assert isinstance(restored, schemas.Detection2DOutput)
+    assert restored.boxes[0].label == "car" and restored.boxes[0].track_id == 3
+    assert restored.boxes[1].label is None
+    assert np.array_equal(restored.boxes[0].xyxy, output.boxes[0].xyxy)
+
+
+def test_instance_segmentation_2d_roundtrip() -> None:
+    mask = np.zeros((4, 4), dtype=np.bool_)
+    mask[1:3, 0:2] = True
+    output = schemas.InstanceSegmentation2DOutput(
+        instances=[
+            schemas.Instance2D(
+                box=schemas.Box2D(xyxy=np.array([2.0, 1.0, 6.0, 5.0]), label="person"),
+                mask=mask,
+                mask_region=(2, 1, 6, 5),
+            )
+        ]
+    )
+    restored = unpack(pack(output))
+    instance = restored.instances[0]
+    # bool dtype 維持・mask_region の tuple が list に落ちない。
+    assert instance.mask.dtype == np.bool_
+    assert np.array_equal(instance.mask, mask)
+    assert isinstance(instance.mask_region, tuple)
+    assert instance.mask_region == (2, 1, 6, 5)
+
+
+def test_classification_2d_roundtrip() -> None:
+    output = schemas.Classification2DOutput(
+        labels=["car", "truck"], scores=np.array([0.8, 0.2], dtype=np.float64)
+    )
+    restored = unpack(pack(output))
+    assert restored.labels == ["car", "truck"]
+    assert np.allclose(restored.scores, output.scores)
+
+
 # --- copy / read-only -------------------------------------------------------
 
 
@@ -137,11 +214,11 @@ def test_oversized_header_length() -> None:
         unpack(bytes(packed))
 
 
-@pytest.mark.parametrize("version", ["0.2", "1.0"])
+@pytest.mark.parametrize("version", ["0.1", "1.0"])
 def test_incompatible_schema_version(version: str) -> None:
-    # 単純なオブジェクトを pack し、ヘッダの "0.1" だけを差し替える（長さ不変）。
+    # 単純なオブジェクトを pack し、ヘッダの現行バージョンだけを差し替える（長さ不変）。
     packed = pack({"a": 1})
-    corrupt = packed.replace(b'"0.1"', f'"{version}"'.encode(), 1)
+    corrupt = packed.replace(b'"0.2"', f'"{version}"'.encode(), 1)
     assert corrupt != packed
     with pytest.raises(SerializationError):
         unpack(corrupt)

@@ -184,7 +184,7 @@ def test_hub_reference_not_supported(tmp_path) -> None:
 
 def weights_config(sha: str | None) -> Any:
     data = {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "agent_id": "jidohub/Foo",
         "task": "object_detection_3d",
         "sensors": {"lidar": ["LIDAR_TOP"]},

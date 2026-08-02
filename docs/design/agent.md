@@ -460,3 +460,22 @@ CenterPointの例で言えば、まさにお書きになった形が正解です
 - ビルドに`TORCH_CUDA_ARCH_LIST`が必要なことが多い（ユーザーにより環境が異なるため、動的に指定できる仕組みが必要）
 - 重みダウンロードはなるべくHuggingFace等を活用したい
 - 外部の重みを使用する場合はライセンスに注意
+
+#### `--no-build-isolation`を付けるかどうかの判断
+
+GitHubリポジトリで公開されているAIモデルを用いる場合、インストール手順に`pip install -e .`コマンドが含まれているケースが多いでしょう（基盤モデル系に多い）。このコマンドでは、リポジトリ内の`setup.py`に基づき依存パッケージがインストールされます。
+
+このとき、Dockerコンテナ内にこのAIモデルをインストールする際に`RUN pip install -e .`とすると、以下の条件においてビルドがうまく行きません。
+
+- **setup.py内で**`import torch`**している**
+- CUDA ExtensionをCppExtensionまたはCUDAExtensionでビルドしている
+
+この原因として、Dockerファイル内での`RUN pip install -e .`では新しい仮想環境が作成されてその中でビルドが行われる（build isolation）ため、この環境の中にtorchがなく、`import torch`が失敗することが挙げられます。この条件を満たすときは、build isolationを無効化にするための`--no-build-isolation`オプションをつけて
+
+```python
+RUN pip install --no-build-isolation -e .
+```
+
+としてください
+
+#### `TORCH_CUDA_ARCH_LIST`
