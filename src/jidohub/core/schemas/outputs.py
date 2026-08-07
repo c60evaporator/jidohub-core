@@ -19,10 +19,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from jidohub.core.geometry import quaternion_to_yaw
+from jidohub.core.geometry import (
+    boxes_to_source,
+    denormalize_boxes,
+    invert_transform,
+    quaternion_to_yaw,
+    rotate_vectors,
+    transform_quaternion,
+)
+
+if TYPE_CHECKING:
+    from jidohub.core.schemas.image import Image
 
 __all__ = [
     "CoordinateFrame",
@@ -147,6 +158,74 @@ class Box3D:
         return cls(center=center, size=size, rotation=rotation, label=label, **kwargs)  # type: ignore[arg-type]
 
 
+# --- 3D 変換の内部ヘルパ（層 3 メソッドが委譲する）---------------------------
+#
+# 単一要素を変換する**公開**関数は置かない（座標系はコンテナが持つ原則。2 章）。
+# geometry には schemas 非依存のプリミティブのみを置き、要素の再構築はここで行う
+# （`transform_boxes` を geometry に置くと geometry→schemas の結合が生じるため）。
+
+
+def _resolve_transform(
+    frame: CoordinateFrame, target: CoordinateFrame, ego_to_global: np.ndarray
+) -> np.ndarray | None:
+    """``frame`` から ``target`` へ移すために適用する 4x4 変換を返す。
+
+    既に ``target`` なら ``None``（呼び出し側は ``self`` を返して冪等にする）。
+    ``CAMERA`` は ``ego_to_global`` だけでは変換できないため
+    :class:`NotImplementedError`（黙って誤変換しない。4.2）。
+    """
+    if frame == CoordinateFrame.CAMERA:
+        raise NotImplementedError(
+            "cannot transform a CAMERA-frame output with ego_to_global alone; "
+            "camera extrinsics are required and are held by the caller (CameraFrame)."
+        )
+    if frame == target:
+        return None
+    if target == CoordinateFrame.GLOBAL:  # EGO -> GLOBAL
+        return np.asarray(ego_to_global, dtype=np.float64)
+    return invert_transform(ego_to_global)  # GLOBAL -> EGO
+
+
+def _transform_positions(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """位置（点）に回転 + 平行移動を適用する。新しい ``np.float64`` 配列を返す。
+
+    最終軸が 2（BEV の平面座標）なら z = 0 を補って変換し、2 成分に戻す。
+    最終軸が 3 ならそのまま。先頭次元は任意（``(3,)`` / ``(P, 2)`` / ``(M, T, 2)`` などに対応）。
+    """
+    pts = np.asarray(points, dtype=np.float64)
+    rotation = np.asarray(transform, dtype=np.float64)[:3, :3]
+    translation = np.asarray(transform, dtype=np.float64)[:3, 3]
+    if pts.shape[-1] == 2:
+        padded = np.concatenate([pts, np.zeros((*pts.shape[:-1], 1))], axis=-1)
+        return (padded @ rotation.T + translation)[..., :2]
+    return pts @ rotation.T + translation
+
+
+def _transform_box3d(box: Box3D, transform: np.ndarray) -> Box3D:
+    """:class:`Box3D` 1 個を変換した新しい :class:`Box3D` を返す（入力は不変）。
+
+    ``center`` は回転 + 平行移動、``rotation`` は姿勢の合成、``velocity`` は**回転のみ**
+    （平行移動を適用しない。速度はベクトル量。4.3）。``size`` 等は不変。
+    """
+    velocity = box.velocity
+    if velocity is not None:
+        if velocity.shape == (2,):
+            padded = np.array([velocity[0], velocity[1], 0.0], dtype=np.float64)
+            velocity = rotate_vectors(padded, transform)[:2]
+        else:
+            velocity = rotate_vectors(velocity, transform)
+    return Box3D(
+        center=_transform_positions(box.center, transform),
+        size=box.size,
+        rotation=transform_quaternion(box.rotation, transform),
+        label=box.label,
+        score=box.score,
+        velocity=velocity,
+        track_id=box.track_id,
+        attributes=box.attributes,
+    )
+
+
 @dataclass
 class Detection3DOutput:
     """3D 物体検出・追跡の出力。
@@ -161,6 +240,28 @@ class Detection3DOutput:
 
     boxes: list[Box3D] = field(default_factory=list)
     frame: CoordinateFrame = CoordinateFrame.EGO
+
+    def to_ego(self, ego_to_global: np.ndarray) -> Detection3DOutput:
+        """ego 座標系での新しい出力を返す（冪等・非破壊）。詳細は :meth:`to_global`。"""
+        return self._to_frame(CoordinateFrame.EGO, ego_to_global)
+
+    def to_global(self, ego_to_global: np.ndarray) -> Detection3DOutput:
+        """global 座標系での新しい出力を返す。
+
+        引数は常に ``ego_to_global``（``Sample.ego_to_global`` をそのまま渡せる）。
+        既に目的の座標系なら ``self`` を返す（二重変換を構造的に防ぐ）。``frame`` は
+        更新済みで返る。``CoordinateFrame.CAMERA`` の出力には
+        :class:`NotImplementedError`（4.2）。
+        """
+        return self._to_frame(CoordinateFrame.GLOBAL, ego_to_global)
+
+    def _to_frame(self, target: CoordinateFrame, ego_to_global: np.ndarray) -> Detection3DOutput:
+        transform = _resolve_transform(self.frame, target, ego_to_global)
+        if transform is None:
+            return self
+        return Detection3DOutput(
+            boxes=[_transform_box3d(b, transform) for b in self.boxes], frame=target
+        )
 
 
 @dataclass
@@ -233,6 +334,18 @@ class Instance2D:
                 )
 
 
+def _xyxy_to_source(xyxy: np.ndarray, image: Image, normalized: bool) -> np.ndarray:
+    """box の ``xyxy`` を、推論に使った ``image`` を基準に元画像座標へ戻す。
+
+    ``normalized`` なら ``image`` の現サイズで画素へ戻し（正規化解除）、続いて
+    ``image.source`` の ``scale`` → ``crop`` を逆適用する。順序が重要
+    （正規化解除 → スケール逆適用 → crop 原点加算）。
+    """
+    if normalized:
+        xyxy = denormalize_boxes(xyxy, image.width, image.height)
+    return boxes_to_source(xyxy, image.source)
+
+
 @dataclass
 class Detection2DOutput:
     """2D 物体検出の出力（``object_detection_2d``）。
@@ -240,13 +353,43 @@ class Detection2DOutput:
     座標は**入力 :class:`~jidohub.core.schemas.Image` の現サイズ基準**（`2d_tasks.md` 3.2）。
     3D 出力と異なり座標系の選択の余地がない（画像平面に一意）ため
     :class:`CoordinateFrame` フィールドは持たない。元画像へ戻す必要がある場合は
-    :attr:`~jidohub.core.schemas.image.Image.source` を用いる。
+    :meth:`to_source_image`（内部で :attr:`~jidohub.core.schemas.image.Image.source` を使う）。
 
     Attributes:
         boxes: 検出されたボックスのリスト。スコア降順である必要はない。
+        normalized: ``True`` なら :attr:`Box2D.xyxy` は ``[0, 1]`` の正規化座標、
+            ``False``（既定）なら画素座標。**どの画像に対する座標かはここに持たない**
+            （crop 位置とスケールは連続量で enum に収まらないため、
+            :attr:`~jidohub.core.schemas.image.Image.source` が保持する。5.1）。
+            正規化は要素間で不整合になり得ないコンテナ単位の性質なので
+            :class:`Box2D` ではなくここに持つ。
     """
 
     boxes: list[Box2D] = field(default_factory=list)
+    normalized: bool = False
+
+    def to_source_image(self, image: Image) -> Detection2DOutput:
+        """推論に使った ``image`` を基準に、元画像座標の新しい出力を返す。
+
+        正規化解除・``image.source`` の逆適用を 1 回で行い、``normalized=False`` にする。
+        crop 位置・スケール・正規化の有無を利用者が覚える必要がなくなる（5.3）。
+
+        冪等・非破壊。``image.source`` が ``None`` かつ ``normalized`` が ``False`` なら
+        変換対象がないため ``self`` を返す。
+        """
+        if not self.normalized and image.source is None:
+            return self
+        boxes = [
+            Box2D(
+                xyxy=_xyxy_to_source(b.xyxy, image, self.normalized),
+                label=b.label,
+                score=b.score,
+                track_id=b.track_id,
+                attributes=b.attributes,
+            )
+            for b in self.boxes
+        ]
+        return Detection2DOutput(boxes=boxes, normalized=False)
 
 
 @dataclass
@@ -257,9 +400,59 @@ class InstanceSegmentation2DOutput:
 
     Attributes:
         instances: 検出されたインスタンスのリスト。
+        normalized: ``True`` なら各 :attr:`Instance2D.box` の ``xyxy`` は ``[0, 1]`` の
+            正規化座標、``False``（既定）なら画素座標（意味は :class:`Detection2DOutput` と同じ）。
+            **マスクは常に画素座標**であり ``normalized`` の対象外
+            （:attr:`Instance2D.mask_region` は整数）。1 つの :class:`Instance2D` 内で
+            box（正規化され得る）と mask（常に画素）の座標系が混在する点に注意。
     """
 
     instances: list[Instance2D] = field(default_factory=list)
+    normalized: bool = False
+
+    def to_source_image(self, image: Image) -> InstanceSegmentation2DOutput:
+        """推論に使った ``image`` を基準に、元画像座標の新しい出力を返す。
+
+        各 box を元画像座標へ戻し、``mask_region`` も元画像基準へ移す。``mask`` 配列自体は
+        スケールが変わると再サンプリングが必要になるため、``image.source.scale`` が ``None``
+        または ``(1.0, 1.0)`` の場合のみ ``mask`` を持つインスタンスを移動し、それ以外は
+        :class:`NotImplementedError`（画像処理依存を core に持ち込まない。5.3）。
+
+        冪等・非破壊。``image.source`` が ``None`` かつ ``normalized`` が ``False`` なら ``self``。
+        """
+        if not self.normalized and image.source is None:
+            return self
+        source = image.source
+        scale = source.scale if source is not None else None
+        scale_trivial = scale is None or (scale[0] == 1.0 and scale[1] == 1.0)
+        instances = []
+        for inst in self.instances:
+            new_box = Box2D(
+                xyxy=_xyxy_to_source(inst.box.xyxy, image, self.normalized),
+                label=inst.box.label,
+                score=inst.box.score,
+                track_id=inst.box.track_id,
+                attributes=inst.box.attributes,
+            )
+            mask_region = inst.mask_region
+            if mask_region is not None:
+                if not scale_trivial:
+                    raise NotImplementedError(
+                        "moving a mask under a non-unit scale requires resampling, "
+                        "which core does not implement (no image-processing dependency). "
+                        "Resample the mask on the caller side, or infer at source resolution."
+                    )
+                # mask_region は常に画素座標なので、normalized によらず crop 逆適用のみ行う
+                # （_xyxy_to_source を使うと normalized 時に誤って正規化解除される）。
+                moved = boxes_to_source(np.asarray(mask_region, dtype=np.float64), source)
+                mask_region = (
+                    int(round(moved[0])),
+                    int(round(moved[1])),
+                    int(round(moved[2])),
+                    int(round(moved[3])),
+                )
+            instances.append(Instance2D(box=new_box, mask=inst.mask, mask_region=mask_region))
+        return InstanceSegmentation2DOutput(instances=instances, normalized=False)
 
 
 @dataclass
@@ -338,10 +531,39 @@ class MapOutput:
     elements: list[MapElement] = field(default_factory=list)
     frame: CoordinateFrame = CoordinateFrame.EGO
 
+    def to_ego(self, ego_to_global: np.ndarray) -> MapOutput:
+        """ego 座標系での新しい出力を返す（冪等・非破壊）。詳細は :meth:`Detection3DOutput.to_global`。"""
+        return self._to_frame(CoordinateFrame.EGO, ego_to_global)
+
+    def to_global(self, ego_to_global: np.ndarray) -> MapOutput:
+        """global 座標系での新しい出力を返す（冪等・非破壊）。"""
+        return self._to_frame(CoordinateFrame.GLOBAL, ego_to_global)
+
+    def _to_frame(self, target: CoordinateFrame, ego_to_global: np.ndarray) -> MapOutput:
+        transform = _resolve_transform(self.frame, target, ego_to_global)
+        if transform is None:
+            return self
+        elements = [
+            MapElement(
+                points=_transform_positions(e.points, transform),
+                element_type=e.element_type,
+                is_closed=e.is_closed,
+                score=e.score,
+                element_id=e.element_id,
+            )
+            for e in self.elements
+        ]
+        return MapOutput(elements=elements, frame=target)
+
 
 @dataclass
 class AgentForecast:
     """他車・歩行者 1 体分の動作予測。
+
+    座標の解釈に関わるメタ情報（座標系）は**要素ではなくコンテナ**
+    :class:`MotionForecastOutput` が持つ（2 章）。要素に ``frame`` を持たせると
+    要素間で不整合な座標系が型として表現可能になり、コンテナ単位の変換 API が
+    定義できなくなるため、ここには持たせない。
 
     Attributes:
         trajectories: shape ``(M, T, 2)``、``np.float64``。
@@ -350,14 +572,12 @@ class AgentForecast:
         probabilities: shape ``(M,)``、``np.float64``。各モードの確率。総和 1。
         dt: 予測ステップの時間間隔[s]。
         track_id: 対応する :class:`Box3D` の ``track_id``。
-        frame: 座標系。
     """
 
     trajectories: np.ndarray
     probabilities: np.ndarray
     dt: float
     track_id: int | None = None
-    frame: CoordinateFrame = CoordinateFrame.EGO
 
 
 @dataclass
@@ -366,9 +586,35 @@ class MotionForecastOutput:
 
     Attributes:
         forecasts: 各対象の予測のリスト。
+        frame: ``forecasts`` の軌跡が表現されている座標系（要素の
+            :class:`AgentForecast` から移設。2 章・4.1）。
     """
 
     forecasts: list[AgentForecast] = field(default_factory=list)
+    frame: CoordinateFrame = CoordinateFrame.EGO
+
+    def to_ego(self, ego_to_global: np.ndarray) -> MotionForecastOutput:
+        """ego 座標系での新しい出力を返す（冪等・非破壊）。"""
+        return self._to_frame(CoordinateFrame.EGO, ego_to_global)
+
+    def to_global(self, ego_to_global: np.ndarray) -> MotionForecastOutput:
+        """global 座標系での新しい出力を返す（冪等・非破壊）。"""
+        return self._to_frame(CoordinateFrame.GLOBAL, ego_to_global)
+
+    def _to_frame(self, target: CoordinateFrame, ego_to_global: np.ndarray) -> MotionForecastOutput:
+        transform = _resolve_transform(self.frame, target, ego_to_global)
+        if transform is None:
+            return self
+        forecasts = [
+            AgentForecast(
+                trajectories=_transform_positions(f.trajectories, transform),
+                probabilities=f.probabilities,
+                dt=f.dt,
+                track_id=f.track_id,
+            )
+            for f in self.forecasts
+        ]
+        return MotionForecastOutput(forecasts=forecasts, frame=target)
 
 
 @dataclass
@@ -388,6 +634,25 @@ class PlanningOutput:
     dt: float
     frame: CoordinateFrame = CoordinateFrame.EGO
     confidence: float | None = None
+
+    def to_ego(self, ego_to_global: np.ndarray) -> PlanningOutput:
+        """ego 座標系での新しい計画を返す（冪等・非破壊）。"""
+        return self._to_frame(CoordinateFrame.EGO, ego_to_global)
+
+    def to_global(self, ego_to_global: np.ndarray) -> PlanningOutput:
+        """global 座標系での新しい計画を返す（冪等・非破壊）。"""
+        return self._to_frame(CoordinateFrame.GLOBAL, ego_to_global)
+
+    def _to_frame(self, target: CoordinateFrame, ego_to_global: np.ndarray) -> PlanningOutput:
+        transform = _resolve_transform(self.frame, target, ego_to_global)
+        if transform is None:
+            return self
+        return PlanningOutput(
+            trajectory=_transform_positions(self.trajectory, transform),
+            dt=self.dt,
+            frame=target,
+            confidence=self.confidence,
+        )
 
 
 @dataclass

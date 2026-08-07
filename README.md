@@ -118,6 +118,29 @@ output = Detection2DOutput(
 Agent が受け付けるプロンプト種別は `agent_config.json` の `prompt` で宣言する
 （`{"required": true, "supported": ["point", "box", "text"]}`）。
 
+### 座標変換（元画像へ戻す / ego ↔ global）
+
+crop・resize・正規化を経た 2D 出力は、推論に使った `Image` を渡すだけで元画像座標へ戻せる。
+crop 位置・スケール・正規化の有無を利用者が覚える必要はない（`Image.source` が保持している）。
+
+```python
+crop = frame.image.cropped(400, 200, 1200, 700)  # source に crop 位置が記録される
+output = agent.predict(ImageSample(image=crop))  # 例: Detection2DOutput（normalized=True でも可）
+full = output.to_source_image(crop)  # 元画像座標・normalized=False で返る
+```
+
+3D 出力は `to_ego` / `to_global` で座標系を移す。引数は常に `Sample.ego_to_global` を渡す
+（逆変換は内部で処理）。冪等・非破壊で、変換後の `frame` も更新される。
+
+```python
+detection_global = detection.to_global(sample.ego_to_global)  # ego → global
+detection_ego = detection_global.to_ego(sample.ego_to_global)  # 往復は恒等
+```
+
+座標系のメタ情報は要素ではなくコンテナ（`Detection3DOutput.frame` /
+`Detection2DOutput.normalized` 等）が持つ。単一要素だけ変換したい場合は
+`jidohub.core.geometry` の純関数（`boxes_to_source` / `rotate_vectors` 等）を直接使う。
+
 ### agent_config.json の読み込みと検証
 
 ```python

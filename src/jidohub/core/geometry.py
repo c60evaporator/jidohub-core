@@ -12,16 +12,31 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from jidohub.core.schemas.image import ImageSource
 
 __all__ = [
     "quaternion_to_rotation_matrix",
+    "rotation_matrix_to_quaternion",
     "quaternion_to_yaw",
     "yaw_to_quaternion",
     "invert_transform",
     "transform_points",
+    "rotate_vectors",
+    "transform_quaternion",
     "crop_intrinsic",
     "scale_intrinsic",
+    "denormalize_boxes",
+    "normalize_boxes",
+    "boxes_to_source",
+    "boxes_from_source",
+    "points_to_source",
+    "points_from_source",
+    "scaled_source",
 ]
 
 
@@ -43,6 +58,52 @@ def quaternion_to_rotation_matrix(quaternion: np.ndarray) -> np.ndarray:
         ],
         dtype=np.float64,
     )
+
+
+def rotation_matrix_to_quaternion(matrix: np.ndarray) -> np.ndarray:
+    """3x3 回転行列を ``(w, x, y, z)`` のクォータニオンに変換する。
+
+    数値的に安定な Shepperd 法（対角成分の trace の符号で場合分けする）を用いる。
+    素朴な実装は ``w`` が 0 に近い（180 度付近の）回転で精度を失うため。
+    :func:`quaternion_to_rotation_matrix` の逆写像であり、往復で一致する
+    （符号の不定性はあるが回転としては同値）。
+
+    Args:
+        matrix: shape ``(3, 3)`` の回転行列（直交・行列式 +1 を前提）。
+
+    Returns:
+        shape ``(4,)``、``(w, x, y, z)`` 順の**正規化された**クォータニオン（``np.float64``）。
+    """
+    m = np.asarray(matrix, dtype=np.float64)
+    trace = m[0, 0] + m[1, 1] + m[2, 2]
+
+    if trace > 0.0:
+        scale = np.sqrt(trace + 1.0) * 2.0
+        w = 0.25 * scale
+        x = (m[2, 1] - m[1, 2]) / scale
+        y = (m[0, 2] - m[2, 0]) / scale
+        z = (m[1, 0] - m[0, 1]) / scale
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        scale = np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2.0
+        w = (m[2, 1] - m[1, 2]) / scale
+        x = 0.25 * scale
+        y = (m[0, 1] + m[1, 0]) / scale
+        z = (m[0, 2] + m[2, 0]) / scale
+    elif m[1, 1] > m[2, 2]:
+        scale = np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2.0
+        w = (m[0, 2] - m[2, 0]) / scale
+        x = (m[0, 1] + m[1, 0]) / scale
+        y = 0.25 * scale
+        z = (m[1, 2] + m[2, 1]) / scale
+    else:
+        scale = np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2.0
+        w = (m[1, 0] - m[0, 1]) / scale
+        x = (m[0, 2] + m[2, 0]) / scale
+        y = (m[1, 2] + m[2, 1]) / scale
+        z = 0.25 * scale
+
+    quaternion = np.array([w, x, y, z], dtype=np.float64)
+    return quaternion / np.linalg.norm(quaternion)
 
 
 def quaternion_to_yaw(quaternion: np.ndarray) -> float:
@@ -128,6 +189,46 @@ def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     return result
 
 
+def rotate_vectors(vectors: np.ndarray, rotation_matrix: np.ndarray) -> np.ndarray:
+    """ベクトル量に**回転のみ**を適用する（平行移動を加えない）。
+
+    速度のようなベクトル量に使う。位置（点）と異なり平行移動を適用してはならない。
+    この誤りは「静止物体が高速で動いて見える」形で現れ、例外は出ない（4.3）。
+
+    Args:
+        vectors: shape ``(3,)`` または ``(N, 3)``。
+        rotation_matrix: shape ``(3, 3)`` の回転行列。4x4 同次変換の回転部
+            （``transform[:3, :3]``）をそのまま渡してよい。
+
+    Returns:
+        回転後のベクトル。shape は入力と同じ、``np.float64``。**入力は破壊しない。**
+    """
+    vectors = np.asarray(vectors, dtype=np.float64)
+    rotation = np.asarray(rotation_matrix, dtype=np.float64)[:3, :3]
+    if vectors.shape[-1] != 3:
+        raise ValueError(f"rotate_vectors expects last dim 3, got shape {vectors.shape}")
+    return vectors @ rotation.T
+
+
+def transform_quaternion(quaternion: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """回転を表すクォータニオンに、4x4 同次変換の**回転部**を合成する。
+
+    ``Box3D.rotation`` を別座標系へ移す際に使う。平行移動は姿勢に影響しないため
+    ``transform`` の回転部のみを用いる。合成後の回転行列を
+    :func:`rotation_matrix_to_quaternion` で戻す。
+
+    Args:
+        quaternion: shape ``(4,)``、``(w, x, y, z)`` 順。
+        transform: shape ``(4, 4)`` の同次変換行列（``a_to_b``）。
+
+    Returns:
+        変換後の姿勢を表す shape ``(4,)`` のクォータニオン（``np.float64``）。
+    """
+    transform = np.asarray(transform, dtype=np.float64)
+    rotated = transform[:3, :3] @ quaternion_to_rotation_matrix(quaternion)
+    return rotation_matrix_to_quaternion(rotated)
+
+
 def crop_intrinsic(intrinsic: np.ndarray, x0: float, y0: float) -> np.ndarray:
     """crop 後の画像に対応する内部パラメータ ``K`` を返す（主点を平行移動）。
 
@@ -170,3 +271,147 @@ def scale_intrinsic(intrinsic: np.ndarray, scale_x: float, scale_y: float) -> np
     result[1, 1] *= scale_y
     result[1, 2] *= scale_y
     return result
+
+
+# --- 2D（画像平面）座標の変換 -------------------------------------------------
+#
+# 画素座標の原点は左上（x 右・y 下）。crop / resize / 正規化を経た座標を元画像へ
+# 戻す際の取り違えを防ぐため、変換の実体をここに集約する（`coordinate_transforms.md` 6 章）。
+# すべて入力を破壊せず新しい配列を返す。
+
+
+def denormalize_boxes(xyxy: np.ndarray, width: int, height: int) -> np.ndarray:
+    """正規化座標 ``[0, 1]`` の box を画素座標へ戻す。
+
+    Args:
+        xyxy: shape ``(4,)`` または ``(N, 4)``。``(x0, y0, x1, y1)`` の正規化座標。
+        width: 対象画像の幅[px]。
+        height: 対象画像の高さ[px]。
+
+    Returns:
+        画素座標の box。shape は入力と同じ、``np.float64``。
+    """
+    xyxy = np.asarray(xyxy, dtype=np.float64)
+    return xyxy * np.array([width, height, width, height], dtype=np.float64)
+
+
+def normalize_boxes(xyxy: np.ndarray, width: int, height: int) -> np.ndarray:
+    """画素座標の box を正規化座標 ``[0, 1]`` へ変換する（:func:`denormalize_boxes` の逆）。
+
+    Args:
+        xyxy: shape ``(4,)`` または ``(N, 4)``。``(x0, y0, x1, y1)`` の画素座標。
+        width: 対象画像の幅[px]。
+        height: 対象画像の高さ[px]。
+
+    Returns:
+        正規化座標の box。shape は入力と同じ、``np.float64``。
+    """
+    xyxy = np.asarray(xyxy, dtype=np.float64)
+    return xyxy / np.array([width, height, width, height], dtype=np.float64)
+
+
+def _source_params(source: "ImageSource | None") -> tuple[float, float, float, float]:
+    """``ImageSource`` から実効的な ``(crop_x0, crop_y0, scale_x, scale_y)`` を取り出す。
+
+    ``source`` が ``None`` なら恒等 ``(0, 0, 1, 1)``。``crop`` が ``None`` なら原点 ``(0, 0)``、
+    ``scale`` が ``None`` なら等倍 ``(1, 1)`` とみなす。属性のみを読むため ``ImageSource`` を
+    import しない（モジュール循環回避。型注釈は ``TYPE_CHECKING`` 下でのみ解決）。
+    """
+    if source is None:
+        return 0.0, 0.0, 1.0, 1.0
+    x0, y0 = (float(source.crop[0]), float(source.crop[1])) if source.crop else (0.0, 0.0)
+    sx, sy = (float(source.scale[0]), float(source.scale[1])) if source.scale else (1.0, 1.0)
+    return x0, y0, sx, sy
+
+
+def boxes_to_source(xyxy: np.ndarray, source: "ImageSource | None") -> np.ndarray:
+    """現画像基準の box を、``source`` に従って元画像基準へ戻す。
+
+    元画像 ``(u, v)`` は ``crop`` と ``scale`` を経て現画像で ``((u - x0) * sx, (v - y0) * sy)``
+    になる。本関数はその逆写像 ``(x / sx + x0, y / sy + y0)`` を適用する。まず ``scale`` を
+    逆適用し、次に ``crop`` 原点を加算する（順序を誤ると crop 原点の扱いがずれる）。
+
+    Args:
+        xyxy: shape ``(4,)`` または ``(N, 4)``。現画像の**画素**座標
+            （正規化座標には使わない。先に :func:`denormalize_boxes` で戻すこと）。
+        source: 現画像の由来。``None`` / ``crop`` None / ``scale`` None は恒等成分として扱う。
+
+    Returns:
+        元画像基準の box。shape は入力と同じ、``np.float64``。
+    """
+    xyxy = np.asarray(xyxy, dtype=np.float64)
+    x0, y0, sx, sy = _source_params(source)
+    return xyxy / np.array([sx, sy, sx, sy]) + np.array([x0, y0, x0, y0])
+
+
+def boxes_from_source(xyxy: np.ndarray, source: "ImageSource | None") -> np.ndarray:
+    """元画像基準の box を、``source`` に従って現画像基準へ写す（:func:`boxes_to_source` の逆）。
+
+    Args:
+        xyxy: shape ``(4,)`` または ``(N, 4)``。元画像の画素座標。
+        source: 現画像の由来。
+
+    Returns:
+        現画像基準の box。shape は入力と同じ、``np.float64``。
+    """
+    xyxy = np.asarray(xyxy, dtype=np.float64)
+    x0, y0, sx, sy = _source_params(source)
+    return (xyxy - np.array([x0, y0, x0, y0])) * np.array([sx, sy, sx, sy])
+
+
+def points_to_source(points: np.ndarray, source: "ImageSource | None") -> np.ndarray:
+    """現画像基準の点列を元画像基準へ戻す（プロンプト座標などに使う）。
+
+    Args:
+        points: shape ``(2,)`` または ``(P, 2)``。現画像の画素座標 ``(x, y)``。
+        source: 現画像の由来。
+
+    Returns:
+        元画像基準の点列。shape は入力と同じ、``np.float64``。
+    """
+    points = np.asarray(points, dtype=np.float64)
+    x0, y0, sx, sy = _source_params(source)
+    return points / np.array([sx, sy]) + np.array([x0, y0])
+
+
+def points_from_source(points: np.ndarray, source: "ImageSource | None") -> np.ndarray:
+    """元画像基準の点列を現画像基準へ写す（:func:`points_to_source` の逆）。
+
+    Args:
+        points: shape ``(2,)`` または ``(P, 2)``。元画像の画素座標 ``(x, y)``。
+        source: 現画像の由来。
+
+    Returns:
+        現画像基準の点列。shape は入力と同じ、``np.float64``。
+    """
+    points = np.asarray(points, dtype=np.float64)
+    x0, y0, sx, sy = _source_params(source)
+    return (points - np.array([x0, y0])) * np.array([sx, sy])
+
+
+def scaled_source(source: "ImageSource | None", scale_x: float, scale_y: float) -> "ImageSource":
+    """``source`` に resize 分の ``scale`` を合成した新しい :class:`ImageSource` を返す。
+
+    agents 側の Processor は「画素の resize」「:func:`scale_intrinsic`」「本関数」を
+    **3 点セット**で行う。ここで ``source`` の更新が漏れると 2D の変換全体が破綻するため、
+    core が更新手段を提供する（5.4）。``crop`` / ``channel`` は保ち、``scale`` のみ
+    乗算合成する（``scale`` は crop 後サイズ→現サイズの拡大率であり、resize は乗算で積み重なる）。
+
+    Args:
+        source: 元の由来。``None`` なら crop なし・等倍から開始する。
+        scale_x: 今回の resize の x 方向拡大率（新サイズ / 現サイズ）。
+        scale_y: y 方向拡大率。
+
+    Returns:
+        ``scale`` を合成した新しい :class:`ImageSource`。**入力は破壊しない。**
+    """
+    from jidohub.core.schemas.image import ImageSource
+
+    if source is None:
+        return ImageSource(scale=(scale_x, scale_y))
+    old_sx, old_sy = source.scale if source.scale else (1.0, 1.0)
+    return ImageSource(
+        channel=source.channel,
+        crop=source.crop,
+        scale=(old_sx * scale_x, old_sy * scale_y),
+    )

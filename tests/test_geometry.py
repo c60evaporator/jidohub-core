@@ -6,13 +6,25 @@ import numpy as np
 import pytest
 
 from jidohub.core.geometry import (
+    boxes_from_source,
+    boxes_to_source,
     crop_intrinsic,
+    denormalize_boxes,
     invert_transform,
+    normalize_boxes,
+    points_from_source,
+    points_to_source,
+    quaternion_to_rotation_matrix,
     quaternion_to_yaw,
+    rotate_vectors,
+    rotation_matrix_to_quaternion,
     scale_intrinsic,
+    scaled_source,
     transform_points,
+    transform_quaternion,
     yaw_to_quaternion,
 )
+from jidohub.core.schemas import ImageSource
 
 from .conftest import make_transform
 
@@ -114,3 +126,107 @@ def test_crop_then_scale_differs_from_scale_then_crop() -> None:
     crop_then_scale = scale_intrinsic(crop_intrinsic(k, 100, 50), 0.5, 0.5)
     scale_then_crop = crop_intrinsic(scale_intrinsic(k, 0.5, 0.5), 100, 50)
     assert not np.array_equal(crop_then_scale, scale_then_crop)
+
+
+# --- 3D ベクトル・クォータニオン変換 ----------------------------------------
+
+
+def test_rotate_vectors_applies_rotation_only() -> None:
+    # z 軸まわり 90 度回転で (1, 0, 0) -> (0, 1, 0)。平行移動は含まれない。
+    transform = make_transform(translation=(100.0, 200.0, 300.0))
+    transform[:3, :3] = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    result = rotate_vectors(np.array([1.0, 0.0, 0.0]), transform)
+    # 4x4 を渡しても回転部のみが使われる（平行移動 100,200,300 は無視）。
+    assert np.allclose(result, [0.0, 1.0, 0.0])
+
+
+def test_rotate_vectors_batched_and_non_destructive() -> None:
+    vectors = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    original = vectors.copy()
+    rotation = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    result = rotate_vectors(vectors, rotation)
+    assert np.allclose(result, [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
+    assert np.array_equal(vectors, original)
+
+
+@pytest.mark.parametrize("yaw", [0.0, 0.7, -2.0, np.pi / 3, np.pi - 1e-6])
+def test_rotation_matrix_quaternion_roundtrip(yaw: float) -> None:
+    quaternion = yaw_to_quaternion(yaw)
+    matrix = quaternion_to_rotation_matrix(quaternion)
+    recovered = rotation_matrix_to_quaternion(matrix)
+    # 符号の不定性を許容して回転行列で比較する。
+    assert np.allclose(quaternion_to_rotation_matrix(recovered), matrix, atol=1e-9)
+
+
+def test_rotation_matrix_to_quaternion_180deg_is_stable() -> None:
+    # w が 0 に近い 180 度回転（素朴実装が精度を失う領域）。
+    matrix = quaternion_to_rotation_matrix(yaw_to_quaternion(np.pi))
+    recovered = rotation_matrix_to_quaternion(matrix)
+    assert np.isfinite(recovered).all()
+    assert np.allclose(quaternion_to_rotation_matrix(recovered), matrix, atol=1e-9)
+
+
+def test_transform_quaternion_composes_known_rotation() -> None:
+    # 45 度の姿勢に 45 度の変換を合成すると 90 度になる。
+    q45 = yaw_to_quaternion(np.pi / 4)
+    transform = np.eye(4)
+    transform[:3, :3] = quaternion_to_rotation_matrix(yaw_to_quaternion(np.pi / 4))
+    result = transform_quaternion(q45, transform)
+    assert quaternion_to_yaw(result) == pytest.approx(np.pi / 2, abs=1e-9)
+
+
+# --- 2D 画素座標の変換（手計算で検証）---------------------------------------
+
+
+def test_denormalize_normalize_roundtrip() -> None:
+    xyxy = np.array([[0.1, 0.2, 0.5, 0.8], [0.0, 0.0, 1.0, 1.0]])
+    pixels = denormalize_boxes(xyxy, width=1600, height=900)
+    assert np.allclose(pixels[0], [160.0, 180.0, 800.0, 720.0])
+    assert np.allclose(normalize_boxes(pixels, 1600, 900), xyxy)
+
+
+def test_denormalize_boxes_accepts_1d_and_2d() -> None:
+    one = denormalize_boxes(np.array([0.5, 0.5, 1.0, 1.0]), 100, 200)
+    assert one.shape == (4,)
+    assert np.allclose(one, [50.0, 100.0, 100.0, 200.0])
+    many = denormalize_boxes(np.zeros((3, 4)), 100, 200)
+    assert many.shape == (3, 4)
+
+
+def test_boxes_to_from_source_roundtrip_crop_and_scale() -> None:
+    # 元画像を crop (400,200) して scale (0.8,1.28) した現画像。
+    source = ImageSource(crop=(400, 200, 1200, 700), scale=(0.8, 1.28))
+    current = np.array([[320.0, 320.0, 336.0, 384.0], [0.0, 0.0, 8.0, 12.8]])
+    original = boxes_to_source(current, source)
+    # (320/0.8 + 400, 320/1.28 + 200) = (800, 450)
+    assert np.allclose(original[0, :2], [800.0, 450.0])
+    assert np.allclose(boxes_from_source(original, source), current)
+
+
+def test_boxes_to_source_none_is_identity() -> None:
+    xyxy = np.array([1.0, 2.0, 3.0, 4.0])
+    assert np.allclose(boxes_to_source(xyxy, None), xyxy)
+
+
+def test_points_to_from_source_roundtrip() -> None:
+    source = ImageSource(crop=(400, 200, 1200, 700), scale=(0.8, 1.28))
+    current = np.array([[320.0, 320.0], [0.0, 0.0]])
+    original = points_to_source(current, source)
+    assert np.allclose(original[0], [800.0, 450.0])
+    assert np.allclose(points_from_source(original, source), current)
+
+
+def test_scaled_source_composes_scale_and_keeps_crop() -> None:
+    base = ImageSource(channel="CAM_FRONT", crop=(400, 200, 1200, 700), scale=(0.8, 1.28))
+    result = scaled_source(base, 0.5, 0.5)
+    assert result.crop == (400, 200, 1200, 700)
+    assert result.channel == "CAM_FRONT"
+    assert result.scale == pytest.approx((0.4, 0.64))
+    # 入力は破壊しない。
+    assert base.scale == (0.8, 1.28)
+
+
+def test_scaled_source_from_none() -> None:
+    result = scaled_source(None, 0.5, 2.0)
+    assert result.crop is None
+    assert result.scale == (0.5, 2.0)

@@ -153,6 +153,22 @@ core には**独立に動く 3 つのバージョン**がある。片方に合�
 - **出力（`Box3D` 等）は ego 座標系を既定とする。**
   ただし `Detection3DOutput.frame` フィールドで座標系を必ず明示し、暗黙の前提を作らない。
 
+- **座標の解釈に関わるメタ情報（座標系 `frame` / 正規化 `normalized`）は、要素ではなく
+  コンテナが持つ。** `Detection3DOutput.frame` / `MotionForecastOutput.frame` /
+  `Detection2DOutput.normalized` のように出力コンテナ側に置き、要素（`Box3D` / `Box2D` /
+  `AgentForecast`）には持たせない。理由:
+  - 要素に持たせると要素間で不整合な状態（`boxes[0]` は ego、`boxes[1]` は global）が
+    型として表現可能になり、防ぐには全要素検証が要る。
+  - コンテナ単位の変換 API（`to_ego` / `to_global` / `to_source_image`）が定義できなくなる。
+    検出 0 件の出力の座標系も表現できなくなる（空リストは正常な結果）。
+  - `Instance2D` では破綻する。マスクは常に画素座標なので `Box2D.normalized=True` は矛盾する。
+  - 単一要素だけ変換したい場合は `geometry` の純関数（`boxes_to_source` 等）を直接呼び、
+    画像サイズや変換行列を明示的に渡す。core は要素単体の高レベル変換 API を**提供しない**。
+- 変換メソッドは**冪等・非破壊**が契約。既に目的の座標系なら `self` を返す（二重変換を構造的に防ぐ）。
+  変換の実体は `geometry.py` の純関数に置き、出力型メソッドはその薄い委譲に留める。
+  `CoordinateFrame.CAMERA` の 3D 出力は `ego_to_global` だけでは変換できず `NotImplementedError`
+  とする（黙って誤変換しない）。
+
 ### 3.3 回転表現
 
 - `Box3D` の回転は **quaternion `(w, x, y, z)` の `np.ndarray` shape (4,)** を正とする。
