@@ -28,6 +28,7 @@ from jidohub.core.geometry import (
     denormalize_boxes,
     invert_transform,
     quaternion_to_yaw,
+    resize_mask_nearest,
     rotate_vectors,
     transform_quaternion,
 )
@@ -333,6 +334,43 @@ class Instance2D:
                     f"(expected x1-x0={width}, y1-y0={height}; got {(x1 - x0, y1 - y0)})"
                 )
 
+    def paste(self, height: int, width: int) -> np.ndarray:
+        """このインスタンスの ``mask`` を ``(height, width)`` の全画面キャンバスへ貼り戻す。
+
+        可視化・評価では全画面マスクが必要になる。``mask_region`` の位置に ``mask`` を置いた
+        shape ``(height, width)`` の ``np.bool_`` 配列を返す（非破壊。新しい配列を返す）。
+
+        画像外へはみ出す領域は**切り落とす**。元画像座標へ戻した ``mask_region`` は crop の
+        逆変換で負座標や画像サイズ超過を含み得るため、クリップしないと ``IndexError`` や
+        意図しない位置への書き込みになる。領域が完全に画像外なら全 ``False`` を返す（例外にしない）。
+
+        Args:
+            height: キャンバスの高さ[px]。
+            width: キャンバスの幅[px]。
+
+        Returns:
+            shape ``(height, width)``、``np.bool_`` のキャンバス。
+
+        Raises:
+            ValueError: ``mask`` または ``mask_region`` が ``None`` の場合。
+
+        Note:
+            **全インスタンスをまとめて貼り戻す API は提供しない。** 1600x900 で 50 インスタンスなら
+            約 72MB になり、bbox + crop 内マスクという表現を選んだ意味が失われる（`2d_tasks.md` 6.2）。
+            全画面が必要な利用側は本メソッドをループで呼ぶ。
+        """
+        if self.mask is None or self.mask_region is None:
+            raise ValueError("Instance2D.paste requires both mask and mask_region to be set")
+        x0, y0, x1, y1 = self.mask_region
+        canvas = np.zeros((height, width), dtype=np.bool_)
+        # キャンバスに収まる範囲へクリップ（負座標・サイズ超過を切り落とす）。
+        cx0, cy0 = max(x0, 0), max(y0, 0)
+        cx1, cy1 = min(x1, width), min(y1, height)
+        if cx1 <= cx0 or cy1 <= cy0:
+            return canvas  # 完全に画像外。
+        canvas[cy0:cy1, cx0:cx1] = self.mask[cy0 - y0 : cy1 - y0, cx0 - x0 : cx1 - x0]
+        return canvas
+
 
 def _xyxy_to_source(xyxy: np.ndarray, image: Image, normalized: bool) -> np.ndarray:
     """box の ``xyxy`` を、推論に使った ``image`` を基準に元画像座標へ戻す。
@@ -413,18 +451,16 @@ class InstanceSegmentation2DOutput:
     def to_source_image(self, image: Image) -> InstanceSegmentation2DOutput:
         """推論に使った ``image`` を基準に、元画像座標の新しい出力を返す。
 
-        各 box を元画像座標へ戻し、``mask_region`` も元画像基準へ移す。``mask`` 配列自体は
-        スケールが変わると再サンプリングが必要になるため、``image.source.scale`` が ``None``
-        または ``(1.0, 1.0)`` の場合のみ ``mask`` を持つインスタンスを移動し、それ以外は
-        :class:`NotImplementedError`（画像処理依存を core に持ち込まない。5.3）。
+        各 box を元画像座標へ戻し、``mask`` と ``mask_region`` も元画像基準へ移す。``scale`` を
+        伴う場合はマスクを**最近傍リサイズ**で移す（bool マスクに使える補間は最近傍のみで、
+        純 numpy で書けるため画像処理依存は生じない。5.3）。品質面では Agent 側で二値化前に
+        logit を補間するのが本来の経路であり、ここはそのフォールバック。
 
         冪等・非破壊。``image.source`` が ``None`` かつ ``normalized`` が ``False`` なら ``self``。
         """
         if not self.normalized and image.source is None:
             return self
         source = image.source
-        scale = source.scale if source is not None else None
-        scale_trivial = scale is None or (scale[0] == 1.0 and scale[1] == 1.0)
         instances = []
         for inst in self.instances:
             new_box = Box2D(
@@ -434,24 +470,21 @@ class InstanceSegmentation2DOutput:
                 track_id=inst.box.track_id,
                 attributes=inst.box.attributes,
             )
-            mask_region = inst.mask_region
-            if mask_region is not None:
-                if not scale_trivial:
-                    raise NotImplementedError(
-                        "moving a mask under a non-unit scale requires resampling, "
-                        "which core does not implement (no image-processing dependency). "
-                        "Resample the mask on the caller side, or infer at source resolution."
-                    )
-                # mask_region は常に画素座標なので、normalized によらず crop 逆適用のみ行う
+            mask, mask_region = inst.mask, inst.mask_region
+            if mask is not None and mask_region is not None:
+                # mask_region は常に画素座標なので、normalized によらず crop/scale 逆適用のみ行う
                 # （_xyxy_to_source を使うと normalized 時に誤って正規化解除される）。
                 moved = boxes_to_source(np.asarray(mask_region, dtype=np.float64), source)
-                mask_region = (
-                    int(round(moved[0])),
-                    int(round(moved[1])),
-                    int(round(moved[2])),
-                    int(round(moved[3])),
-                )
-            instances.append(Instance2D(box=new_box, mask=inst.mask, mask_region=mask_region))
+                # 先に整数の目標領域を確定し、そのサイズへマスクを合わせる（逆順にすると
+                # 丸めで 1 画素ずれ、Instance2D の size 一致検証に落ちる）。
+                x0, y0 = int(np.floor(moved[0])), int(np.floor(moved[1]))
+                x1, y1 = int(np.ceil(moved[2])), int(np.ceil(moved[3]))
+                x1 = max(x1, x0 + 1)  # 極端な縮小で幅・高さが 0 になるのを防ぐ。
+                y1 = max(y1, y0 + 1)
+                if (y1 - y0, x1 - x0) != mask.shape:
+                    mask = resize_mask_nearest(mask, y1 - y0, x1 - x0)
+                mask_region = (x0, y0, x1, y1)
+            instances.append(Instance2D(box=new_box, mask=mask, mask_region=mask_region))
         return InstanceSegmentation2DOutput(instances=instances, normalized=False)
 
 

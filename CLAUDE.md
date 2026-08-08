@@ -84,6 +84,10 @@ core のランタイム依存は **`numpy` と `pydantic` のみ**を原則と�
 - `mmcv` / `mmdet3d` / `opencv` / `open3d` / `nuscenes-devkit` も同様に禁止。
 - 型ヒントのためだけに重いライブラリを import しない（`TYPE_CHECKING` 下でも避ける）。
 - 新しい依存を追加したくなったら、まず「それは本当に core の責務か」を疑う。
+- ただし bool マスクの最近傍リサイズ（`geometry.resize_mask_nearest`）のように、
+  **純 numpy のインデックス操作で書ける処理はこの原則の対象外**とする。判断基準は
+  「外部ライブラリが必要か」であって「画像処理か否か」ではない。画像処理でも純 numpy で
+  完結するなら core に置いてよい（逆に、numpy だけでは書けないなら core の責務ではない）。
 
 ### 2.2 namespace package の規約
 

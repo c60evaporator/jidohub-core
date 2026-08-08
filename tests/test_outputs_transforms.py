@@ -238,15 +238,142 @@ def test_instance_seg_moves_mask_region_no_scale() -> None:
     assert out.instances[0].mask.shape == (3, 4)
 
 
-def test_instance_seg_mask_under_scale_raises() -> None:
+def _seg_image(crop: tuple[int, int, int, int], scale: tuple[float, float] | None) -> Image:
+    """指定した ``source`` を持つ推論画像（非正規化なので画素サイズは検証に影響しない）。"""
+    return Image(
+        pixels=np.zeros((8, 8, 3), dtype=np.uint8), source=ImageSource(crop=crop, scale=scale)
+    )
+
+
+@pytest.mark.parametrize(
+    "scale, region, mask_hw",
+    [
+        ((2.0, 2.0), (10, 10, 18, 18), (8, 8)),  # 現画像が元の 2 倍 → マスク 1/2 縮小
+        ((0.5, 0.5), (4, 4, 12, 12), (8, 8)),  # 現画像が元の 1/2 → マスク 2 倍拡大
+        ((1.3, 0.7), (13, 7, 26, 21), (14, 13)),  # 非整数倍率
+    ],
+)
+def test_instance_seg_mask_region_size_always_matches(
+    scale: tuple[float, float],
+    region: tuple[int, int, int, int],
+    mask_hw: tuple[int, int],
+) -> None:
+    """拡大・縮小・非整数倍率のいずれでも ``mask.shape`` と ``mask_region`` サイズが一致する。
+
+    これが崩れると :meth:`Instance2D.__post_init__` の検証に落ちる（先に整数領域を確定し
+    そのサイズへマスクを合わせる処理順序の担保）。
+    """
     inst = Instance2D(
-        box=Box2D(xyxy=np.array([0.0, 0.0, 4.0, 4.0])),
+        box=Box2D(xyxy=np.array([float(c) for c in region])),
+        mask=np.ones(mask_hw, dtype=np.bool_),
+        mask_region=region,
+    )
+    out = InstanceSegmentation2DOutput(instances=[inst]).to_source_image(
+        _seg_image((0, 0, 40, 40), scale)
+    )
+    result = out.instances[0]
+    rx0, ry0, rx1, ry1 = result.mask_region
+    assert (rx1 - rx0, ry1 - ry0) == (result.mask.shape[1], result.mask.shape[0])
+
+
+@pytest.mark.parametrize(
+    "scale, region, expected_region",
+    [
+        # 整数 scale は float 誤差が出ないため領域座標を厳密に検証できる。
+        ((2.0, 2.0), (10, 10, 18, 18), (25, 25, 29, 29)),  # /2 + crop 原点 20
+        ((0.5, 0.5), (4, 4, 12, 12), (28, 28, 44, 44)),  # *2 + crop 原点 20
+    ],
+)
+def test_instance_seg_mask_region_hand_computed(
+    scale: tuple[float, float],
+    region: tuple[int, int, int, int],
+    expected_region: tuple[int, int, int, int],
+) -> None:
+    inst = Instance2D(
+        box=Box2D(xyxy=np.array([float(c) for c in region])),
+        mask=np.ones((8, 8), dtype=np.bool_),
+        mask_region=region,
+    )
+    out = InstanceSegmentation2DOutput(instances=[inst]).to_source_image(
+        _seg_image((20, 20, 60, 60), scale)
+    )
+    assert out.instances[0].mask_region == expected_region
+
+
+def test_instance_seg_crop_only_preserves_mask_content() -> None:
+    crop = Image(pixels=np.zeros((900, 1600, 3), dtype=np.uint8)).cropped(400, 200, 1200, 700)
+    mask = np.array([[True, False, True, False]] * 3, dtype=np.bool_)
+    inst = Instance2D(
+        box=Box2D(xyxy=np.array([10.0, 20.0, 14.0, 23.0])),
+        mask=mask,
+        mask_region=(10, 20, 14, 23),
+    )
+    out = InstanceSegmentation2DOutput(instances=[inst]).to_source_image(crop)
+    # crop のみ（scale なし）: 平行移動のみでマスクの内容は不変。
+    assert out.instances[0].mask_region == (410, 220, 414, 223)
+    assert np.array_equal(out.instances[0].mask, mask)
+
+
+def test_instance_seg_idempotent_no_op_returns_self() -> None:
+    inst = Instance2D(
+        box=Box2D(xyxy=np.array([1.0, 2.0, 5.0, 6.0])),
         mask=np.ones((4, 4), dtype=np.bool_),
-        mask_region=(0, 0, 4, 4),
+        mask_region=(1, 2, 5, 6),
     )
     seg = InstanceSegmentation2DOutput(instances=[inst])
-    with pytest.raises(NotImplementedError, match="resampl"):
-        seg.to_source_image(_resized_image())
+    # 元画像基準（source=None, 非正規化）は変換対象がないため self を返す。
+    source_image = Image(pixels=np.zeros((10, 10, 3), dtype=np.uint8))
+    once = seg.to_source_image(_seg_image((20, 20, 60, 60), (2.0, 2.0)))
+    assert once.to_source_image(source_image) is once
+
+
+def test_instance_seg_input_not_mutated() -> None:
+    mask = np.ones((8, 8), dtype=np.bool_)
+    original = mask.copy()
+    inst = Instance2D(
+        box=Box2D(xyxy=np.array([10.0, 10.0, 18.0, 18.0])),
+        mask=mask,
+        mask_region=(10, 10, 18, 18),
+    )
+    InstanceSegmentation2DOutput(instances=[inst]).to_source_image(
+        _seg_image((20, 20, 60, 60), (2.0, 2.0))
+    )
+    assert inst.mask_region == (10, 10, 18, 18)
+    assert np.array_equal(mask, original)
+
+
+def test_instance_seg_paste_roundtrip_recovers_original_position() -> None:
+    """元画像の既知位置に置いたマスクが、変換 → 貼り戻しで元の位置に戻ることを確認する。
+
+    座標の取り違え（x/y・w/h の入れ替え、crop 原点の符号）を検出する唯一の手段。
+    整数 scale で構成し、最近傍リサイズが厳密に可逆になるようにする。
+    """
+    # 元画像 100x100 の (28,28,44,44)=16x16 に既知パターン（8x8 を 2 倍したもの）を置く。
+    base8 = np.zeros((8, 8), dtype=np.bool_)
+    base8[0, 0] = True
+    base8[7, 7] = True
+    base8[3, 5] = True
+    expected16 = np.repeat(np.repeat(base8, 2, axis=0), 2, axis=1)
+
+    # 推論画像: 元を crop (20,20,60,60)=40x40 して 1/2 に縮小した 20x20。
+    # 現画像上の領域 (4,4,12,12)=8x8 は元では (28,28,44,44)=16x16 に対応する。
+    image = Image(
+        pixels=np.zeros((20, 20, 3), dtype=np.uint8),
+        source=ImageSource(crop=(20, 20, 60, 60), scale=(0.5, 0.5)),
+    )
+    inst = Instance2D(
+        box=Box2D(xyxy=np.array([4.0, 4.0, 12.0, 12.0])), mask=base8, mask_region=(4, 4, 12, 12)
+    )
+
+    out = InstanceSegmentation2DOutput(instances=[inst]).to_source_image(image)
+    result = out.instances[0]
+    assert result.mask_region == (28, 28, 44, 44)
+    assert np.array_equal(result.mask, expected16)
+
+    canvas = result.paste(100, 100)
+    expected_canvas = np.zeros((100, 100), dtype=np.bool_)
+    expected_canvas[28:44, 28:44] = expected16
+    assert np.array_equal(canvas, expected_canvas)
 
 
 def test_instance_seg_boxes_only_under_scale_ok() -> None:

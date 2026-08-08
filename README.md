@@ -129,6 +129,15 @@ output = agent.predict(ImageSample(image=crop))  # 例: Detection2DOutput（norm
 full = output.to_source_image(crop)  # 元画像座標・normalized=False で返る
 ```
 
+インスタンスセグメンテーションでは box に加えマスクも元画像基準へ移る（`scale` を伴う場合は
+最近傍リサイズ）。全画面マスクが必要なら 1 インスタンス単位で `paste()` する。
+
+```python
+seg_full = seg_output.to_source_image(crop)  # 各 mask_region と mask を元画像基準へ
+for inst in seg_full.instances:
+    full_mask = inst.paste(image_height, image_width)  # (H, W) bool。画像外は切り落とす
+```
+
 3D 出力は `to_ego` / `to_global` で座標系を移す。引数は常に `Sample.ego_to_global` を渡す
 （逆変換は内部で処理）。冪等・非破壊で、変換後の `frame` も更新される。
 

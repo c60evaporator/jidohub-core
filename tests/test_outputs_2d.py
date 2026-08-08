@@ -108,6 +108,45 @@ def test_mask_paste_back_into_full_canvas() -> None:
     assert np.array_equal(canvas, expected)
 
 
+def test_paste_places_mask_at_region() -> None:
+    mask = np.array([[True, False], [False, True]], dtype=np.bool_)
+    instance = Instance2D(box=_box(), mask=mask, mask_region=(3, 2, 5, 4))
+    canvas = instance.paste(6, 6)
+    expected = np.zeros((6, 6), dtype=np.bool_)
+    expected[2:4, 3:5] = mask
+    assert np.array_equal(canvas, expected)
+
+
+def test_paste_clips_negative_region() -> None:
+    # 元画像復元で負座標が生じても、はみ出し部分を切り落として例外にしない。
+    mask = np.ones((4, 4), dtype=np.bool_)
+    instance = Instance2D(box=_box(), mask=mask, mask_region=(-2, -2, 2, 2))
+    canvas = instance.paste(10, 10)
+    assert canvas[:2, :2].all()  # 画像内に収まる右下 2x2 のみ載る。
+    assert canvas.sum() == 4
+
+
+def test_paste_clips_region_beyond_size() -> None:
+    mask = np.ones((4, 4), dtype=np.bool_)
+    instance = Instance2D(box=_box(), mask=mask, mask_region=(8, 8, 12, 12))
+    canvas = instance.paste(10, 10)
+    assert canvas[8:10, 8:10].all()
+    assert canvas.sum() == 4
+
+
+def test_paste_fully_outside_returns_all_false() -> None:
+    mask = np.ones((4, 4), dtype=np.bool_)
+    instance = Instance2D(box=_box(), mask=mask, mask_region=(100, 100, 104, 104))
+    canvas = instance.paste(10, 10)
+    assert canvas.shape == (10, 10)
+    assert not canvas.any()
+
+
+def test_paste_without_mask_rejected() -> None:
+    with pytest.raises(ValueError, match="requires both mask and mask_region"):
+        Instance2D(box=_box()).paste(10, 10)
+
+
 # --- Classification2DOutput -------------------------------------------------
 
 

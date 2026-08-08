@@ -180,10 +180,15 @@ class InstanceSegmentation2DOutput:
 
 - **冪等**。`image.source` が `None` なら正規化解除のみ。既に元画像基準なら実質 no-op
 - **非破壊**
-- `InstanceSegmentation2DOutput` では **`mask_region` も元画像基準へ移す**。
-  `mask` 配列自体はスケールが変わると再サンプリングが必要になるため、
-  **`scale` が `None` または `(1.0, 1.0)` の場合のみマスクを移動**し、
-  それ以外は `NotImplementedError` とする（画像処理依存を core に持ち込まない）
+- `InstanceSegmentation2DOutput` では **`mask` と `mask_region` も元画像基準へ移す**。
+  `scale` を伴う場合はマスクを**最近傍リサイズ**（`resize_mask_nearest`）で移す。
+  bool マスクに適用できる補間は**最近傍のみ**であり（bilinear で補間すると bool でなくなり
+  再度しきい値処理が必要になる）、最近傍リサイズは**純 numpy のインデックス操作で書ける**ため
+  画像処理依存は生じない。品質面では、Agent 側で**二値化の前**に float（logit）マスクを
+  入力解像度へ補間するのが本来の経路であり、ここはそれを経ていない bool 出力を扱う
+  フォールバックである。
+  処理順序が重要で、**先に整数の目標領域を確定してからそのサイズへマスクを合わせる**
+  （逆順にすると丸めで 1 画素ずれ、`Instance2D` の「`mask.shape` と領域サイズが一致」検証に落ちる）。
 
 利用者のコード
 
@@ -225,6 +230,7 @@ def boxes_from_source(xyxy, source) -> np.ndarray             # 元画像 → �
 def points_to_source(points, source) -> np.ndarray            # プロンプト座標用
 def points_from_source(points, source) -> np.ndarray
 def scaled_source(source, scale_x, scale_y) -> ImageSource
+def resize_mask_nearest(mask, height, width) -> np.ndarray    # bool マスクの最近傍リサイズ
 
 # 3D
 def transform_boxes(...)          # center / rotation / velocity をまとめて変換
@@ -251,4 +257,7 @@ def rotate_vectors(vectors, R)    # 速度など、平行移動を適用しな�
 - **正規化解除とスケール逆適用の順序**が正しいこと
   （順序を誤ると crop 原点の扱いがずれる）
 - `CoordinateFrame.CAMERA` に対する `to_ego()` が `NotImplementedError`
-- `scale` を伴うマスクの `to_source_image()` が `NotImplementedError`
+- `scale` を伴うマスクの `to_source_image()` で、拡大・縮小・非整数倍率のいずれでも
+  `mask.shape` と `mask_region` のサイズが常に一致すること
+- マスクの**貼り戻し往復**（元画像の既知位置に置いたマスクを変換 → `Instance2D.paste()` で
+  全画面に戻すと元の位置に一致すること。整数 scale で最近傍が厳密に可逆になるよう構成する）

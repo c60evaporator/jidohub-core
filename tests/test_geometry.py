@@ -16,6 +16,7 @@ from jidohub.core.geometry import (
     points_to_source,
     quaternion_to_rotation_matrix,
     quaternion_to_yaw,
+    resize_mask_nearest,
     rotate_vectors,
     rotation_matrix_to_quaternion,
     scale_intrinsic,
@@ -230,3 +231,54 @@ def test_scaled_source_from_none() -> None:
     result = scaled_source(None, 0.5, 2.0)
     assert result.crop is None
     assert result.scale == (0.5, 2.0)
+
+
+# --- 最近傍マスクリサイズ（純 numpy）----------------------------------------
+
+
+def test_resize_mask_nearest_upscale_matches_repeat() -> None:
+    mask = np.array([[True, False], [False, True]], dtype=np.bool_)
+    result = resize_mask_nearest(mask, 4, 4)
+    expected = np.repeat(np.repeat(mask, 2, axis=0), 2, axis=1)
+    assert np.array_equal(result, expected)
+
+
+def test_resize_mask_nearest_downscale_keeps_center() -> None:
+    mask = np.zeros((8, 8), dtype=np.bool_)
+    mask[2:6, 2:6] = True  # 中央 4x4
+    result = resize_mask_nearest(mask, 4, 4)
+    # 画素中心サンプル (1,3,5,7) のうち 2..5 に入るのは 3, 5 の 2 点 → 中央 2x2 が残る。
+    assert result.shape == (4, 4)
+    assert result[1:3, 1:3].all()
+    assert result.sum() == 4
+
+
+def test_resize_mask_nearest_non_integer_ratio() -> None:
+    mask = np.zeros((3, 5), dtype=np.bool_)
+    mask[1, 2] = True
+    result = resize_mask_nearest(mask, 7, 11)
+    assert result.shape == (7, 11)
+    assert result.any()  # 内容が消えない。
+
+
+def test_resize_mask_nearest_identity() -> None:
+    mask = np.array([[True, False, True], [False, True, False]], dtype=np.bool_)
+    result = resize_mask_nearest(mask, 2, 3)
+    assert np.array_equal(result, mask)
+
+
+def test_resize_mask_nearest_returns_bool_contiguous_and_non_destructive() -> None:
+    mask = np.zeros((4, 4), dtype=np.bool_)
+    mask[0, 0] = True
+    original = mask.copy()
+    result = resize_mask_nearest(mask, 6, 6)
+    assert result.dtype == np.bool_
+    assert result.flags["C_CONTIGUOUS"]
+    assert np.array_equal(mask, original)  # 入力不変。
+
+
+def test_resize_mask_nearest_rejects_bad_input() -> None:
+    with pytest.raises(ValueError, match="2-D"):
+        resize_mask_nearest(np.ones((2, 2, 2), dtype=np.bool_), 4, 4)
+    with pytest.raises(ValueError, match=">= 1"):
+        resize_mask_nearest(np.ones((4, 4), dtype=np.bool_), 0, 4)

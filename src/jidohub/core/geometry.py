@@ -37,6 +37,7 @@ __all__ = [
     "points_to_source",
     "points_from_source",
     "scaled_source",
+    "resize_mask_nearest",
 ]
 
 
@@ -415,3 +416,38 @@ def scaled_source(source: "ImageSource | None", scale_x: float, scale_y: float) 
         crop=source.crop,
         scale=(old_sx * scale_x, old_sy * scale_y),
     )
+
+
+def resize_mask_nearest(mask: np.ndarray, height: int, width: int) -> np.ndarray:
+    """bool マスクを最近傍補間で ``(height, width)`` にリサイズする。
+
+    純 numpy のインデックス操作のみで実装する（画像処理ライブラリを import しない）。
+    bool マスクに適用できる補間は**最近傍のみ**である（bilinear で補間すると bool でなくなり
+    再度しきい値処理が必要になる）ため、最近傍リサイズは numpy で完結する。写像は
+    **画素中心基準**（``align_corners=False`` 相当）で行う。
+
+    Args:
+        mask: shape ``(h, w)``、``np.bool_``。
+        height: 出力の高さ[px]（1 以上）。
+        width: 出力の幅[px]（1 以上）。
+
+    Returns:
+        shape ``(height, width)``、``np.bool_`` の **C 連続**配列。**入力は破壊しない。**
+
+    Raises:
+        ValueError: ``mask`` が 2 次元でない、または ``height`` / ``width`` が 1 未満の場合。
+
+    Note:
+        二値化済みマスクの**拡大**は境界がブロック状になる（情報は増えない）。品質が必要な場合は
+        Agent 側で**二値化の前**に float（logit）マスクを入力解像度へ補間するのが本来の経路であり、
+        本関数はそれを経ていない bool 出力を元画像座標へ移すための**フォールバック**である。
+    """
+    if mask.ndim != 2:
+        raise ValueError(f"resize_mask_nearest expects a 2-D mask, got shape {mask.shape}")
+    if height < 1 or width < 1:
+        raise ValueError(f"resize_mask_nearest size must be >= 1, got {width}x{height}")
+    h, w = mask.shape
+    rows = ((np.arange(height) + 0.5) * h / height).astype(np.int64).clip(0, h - 1)
+    cols = ((np.arange(width) + 0.5) * w / width).astype(np.int64).clip(0, w - 1)
+    resized = mask[rows][:, cols]
+    return np.ascontiguousarray(resized, dtype=np.bool_)
